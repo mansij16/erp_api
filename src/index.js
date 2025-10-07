@@ -15,6 +15,8 @@ const grnRoutes = require("./routes/grn.route");
 const rollRoutes = require("./routes/rolls.route");
 const salesRoutes = require("./routes/sales.route");
 const accountingRoutes = require("./routes/accounting.route");
+const customerRoutes = require("./routes/customer.route");
+const supplierRoutes = require("./routes/supplier.route");
 const reportsRoutes = require("./routes/reports.route");
 
 // Initialize moment for date handling
@@ -38,6 +40,8 @@ app.use("/api/rolls", rollRoutes);
 app.use("/api/sales", salesRoutes);
 app.use("/api/accounting", accountingRoutes);
 app.use("/api/reports", reportsRoutes);
+app.use("/api/customers", customerRoutes);
+app.use("/api/suppliers", supplierRoutes);
 
 app.get("/", (req, res) => {
   res.json({ ok: true, app: process.env.APP_NAME || "ERP" });

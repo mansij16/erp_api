@@ -1,6 +1,5 @@
-```
 # Node modules
-node_modules
+node_modules/
 
 # Logs
 logs
@@ -95,4 +94,3 @@ docker-compose.dev.yml
 *.tmp
 *.bak
 *.old
-```
