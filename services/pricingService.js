@@ -25,15 +25,27 @@ class PricingService {
 
   calculateSalesPricing(baseRate44, targetWidth, lengthMeters, qtyRolls, overrideRate) {
     const derivedRatePerRoll = this.calculateDerivedRate(baseRate44, targetWidth);
-    const finalRatePerRoll = overrideRate || derivedRatePerRoll;
-    const requiresApproval = this.requiresApproval(derivedRatePerRoll, overrideRate);
+    const qty = Number(qtyRolls) || 0;
+    const override = overrideRate !== undefined && overrideRate !== null
+      ? Number(overrideRate)
+      : undefined;
+
+    const finalRatePerRoll =
+      typeof override === "number" && !Number.isNaN(override)
+        ? override
+        : derivedRatePerRoll;
+
+    const requiresApproval = this.requiresApproval(derivedRatePerRoll, override);
+
+    // Return subtotal in lineTotal; controller adds tax separately
+    const lineSubtotal = finalRatePerRoll * qty;
 
     return {
       derivedRatePerRoll,
-      overrideRatePerRoll,
+      overrideRatePerRoll: override ?? null,
       finalRatePerRoll,
       requiresApproval,
-      lineTotal: finalRatePerRoll * qtyRolls * lengthMeters,
+      lineTotal: lineSubtotal,
     };
   }
 }

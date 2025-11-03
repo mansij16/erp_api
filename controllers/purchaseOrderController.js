@@ -32,7 +32,10 @@ const getPurchaseOrders = handleAsyncErrors(async (req, res) => {
 const getPurchaseOrder = handleAsyncErrors(async (req, res) => {
   const purchaseOrder = await PurchaseOrder.findById(req.params.id)
     .populate("supplierId", "name supplierCode address contactPersons")
-    .populate("lines.skuId", "skuCode categoryName gsm qualityName widthInches");
+    .populate(
+      "lines.skuId",
+      "skuCode categoryName gsm qualityName widthInches"
+    );
 
   if (!purchaseOrder) {
     throw new AppError("Purchase order not found", 404, "RESOURCE_NOT_FOUND");
@@ -80,15 +83,18 @@ const createPurchaseOrder = handleAsyncErrors(async (req, res) => {
     supplierName: supplier.name,
     lines: processedLines,
     subtotal,
-    taxAmount,
-    total: subtotal + taxAmount,
+    taxAmount: taxAmount || 0,
+    total: subtotal + taxAmount || 0,
     notes,
-    createdBy: req.user._id,
+    createdBy: req.user._id || "Mansi",
   });
 
   const populatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
     .populate("supplierId", "name supplierCode")
-    .populate("lines.skuId", "skuCode categoryName gsm qualityName widthInches");
+    .populate(
+      "lines.skuId",
+      "skuCode categoryName gsm qualityName widthInches"
+    );
 
   res.status(201).json({
     success: true,
@@ -125,8 +131,8 @@ const updatePurchaseOrder = handleAsyncErrors(async (req, res) => {
 
     purchaseOrder.lines = processedLines;
     purchaseOrder.subtotal = subtotal;
-    purchaseOrder.taxAmount = taxAmount;
-    purchaseOrder.total = subtotal + taxAmount;
+    purchaseOrder.taxAmount = taxAmount || 0;
+    purchaseOrder.total = subtotal + taxAmount || 0;
   }
 
   if (notes !== undefined) purchaseOrder.notes = notes;
@@ -135,7 +141,10 @@ const updatePurchaseOrder = handleAsyncErrors(async (req, res) => {
 
   const populatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
     .populate("supplierId", "name supplierCode")
-    .populate("lines.skuId", "skuCode categoryName gsm qualityName widthInches");
+    .populate(
+      "lines.skuId",
+      "skuCode categoryName gsm qualityName widthInches"
+    );
 
   res.json({
     success: true,
@@ -152,7 +161,11 @@ const approvePurchaseOrder = handleAsyncErrors(async (req, res) => {
   }
 
   if (purchaseOrder.status !== "Draft") {
-    throw new AppError("Only draft purchase orders can be approved", 400, "INVALID_STATE_TRANSITION");
+    throw new AppError(
+      "Only draft purchase orders can be approved",
+      400,
+      "INVALID_STATE_TRANSITION"
+    );
   }
 
   purchaseOrder.status = "Approved";
@@ -175,7 +188,11 @@ const closePurchaseOrder = handleAsyncErrors(async (req, res) => {
   }
 
   if (!["Approved", "PartiallyReceived"].includes(purchaseOrder.status)) {
-    throw new AppError("Only approved or partially received purchase orders can be closed", 400, "INVALID_STATE_TRANSITION");
+    throw new AppError(
+      "Only approved or partially received purchase orders can be closed",
+      400,
+      "INVALID_STATE_TRANSITION"
+    );
   }
 
   purchaseOrder.status = "Closed";

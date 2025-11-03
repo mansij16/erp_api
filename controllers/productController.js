@@ -1,121 +1,106 @@
-const Product = require("../models/Product");
-const Category = require("../models/Category");
-const { handleAsyncErrors, AppError } = require("../utils/errorHandler");
+const productService = require("../services/productService");
+const catchAsync = require("../utils/catchAsync");
 
-// Get all products
-const getProducts = handleAsyncErrors(async (req, res) => {
-  const { categoryId, gsm, qualityName, active } = req.query;
-  const filter = {};
+class ProductController {
+  createProduct = catchAsync(async (req, res) => {
+    const product = await productService.createProduct(req.body);
 
-  if (categoryId) filter.categoryId = categoryId;
-  if (gsm) filter.gsm = parseInt(gsm);
-  if (qualityName) filter.qualityName = qualityName;
-  if (active !== undefined) filter.active = active === "true";
-
-  const products = await Product.find(filter)
-    .populate("categoryId", "name")
-    .sort({ categoryName: 1, gsm: 1, qualityName: 1 });
-
-  res.json({
-    success: true,
-    count: products.length,
-    data: products,
-  });
-});
-
-// Get single product
-const getProduct = handleAsyncErrors(async (req, res) => {
-  const product = await Product.findById(req.params.id).populate(
-    "categoryId",
-    "name"
-  );
-
-  if (!product) {
-    throw new AppError("Product not found", 404, "RESOURCE_NOT_FOUND");
-  }
-
-  res.json({
-    success: true,
-    data: product,
-  });
-});
-
-// Create product
-const createProduct = handleAsyncErrors(async (req, res) => {
-  const { categoryId, gsm, qualityName, qualityAliases, hsnCode } = req.body;
-
-  // Get category details
-  const category = await Category.findById(categoryId);
-  if (!category) {
-    throw new AppError("Category not found", 404, "RESOURCE_NOT_FOUND");
-  }
-
-  const product = await Product.create({
-    categoryId,
-    categoryName: category.name,
-    gsm,
-    qualityName,
-    qualityAliases,
-    hsnCode,
+    res.status(201).json({
+      success: true,
+      message: "Product created successfully",
+      data: product,
+    });
   });
 
-  res.status(201).json({
-    success: true,
-    data: product,
+  getAllProducts = catchAsync(async (req, res) => {
+    const filters = {
+      categoryId: req.query.categoryId,
+      gsm: req.query.gsm ? parseInt(req.query.gsm) : undefined,
+      qualityName: req.query.qualityName,
+      active:
+        req.query.active === "true"
+          ? true
+          : req.query.active === "false"
+          ? false
+          : undefined,
+    };
+
+    const pagination = {
+      page: req.query.page,
+      limit: req.query.limit,
+    };
+
+    const result = await productService.getAllProducts(filters, pagination);
+
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
   });
-});
 
-// Update product
-const updateProduct = handleAsyncErrors(async (req, res) => {
-  const { categoryId, ...updateData } = req.body;
+  getProductById = catchAsync(async (req, res) => {
+    const product = await productService.getProductById(req.params.id);
 
-  // If category is being changed, update categoryName
-  if (categoryId) {
-    const category = await Category.findById(categoryId);
-    if (!category) {
-      throw new AppError("Category not found", 404, "RESOURCE_NOT_FOUND");
-    }
-    updateData.categoryId = categoryId;
-    updateData.categoryName = category.name;
-  }
-
-  const product = await Product.findByIdAndUpdate(req.params.id, updateData, {
-    new: true,
-    runValidators: true,
+    res.status(200).json({
+      success: true,
+      data: product,
+    });
   });
 
-  if (!product) {
-    throw new AppError("Product not found", 404, "RESOURCE_NOT_FOUND");
-  }
+  updateProduct = catchAsync(async (req, res) => {
+    const product = await productService.updateProduct(req.params.id, req.body);
 
-  res.json({
-    success: true,
-    data: product,
+    res.status(200).json({
+      success: true,
+      message: "Product updated successfully",
+      data: product,
+    });
   });
-});
 
-// Delete product
-const deleteProduct = handleAsyncErrors(async (req, res) => {
-  const product = await Product.findById(req.params.id);
+  toggleProductStatus = catchAsync(async (req, res) => {
+    const product = await productService.toggleProductStatus(req.params.id);
 
-  if (!product) {
-    throw new AppError("Product not found", 404, "RESOURCE_NOT_FOUND");
-  }
-
-  // Soft delete
-  product.active = false;
-  await product.save();
-
-  res.json({
-    success: true,
-    message: "Product deactivated successfully",
+    res.status(200).json({
+      success: true,
+      message: `Product ${
+        product.active ? "activated" : "deactivated"
+      } successfully`,
+      data: product,
+    });
   });
-});
 
-module.exports = {
-  getProducts,
-  getProduct,
-  createProduct,
-  updateProduct,
-  deleteProduct,
-};
+  deleteProduct = catchAsync(async (req, res) => {
+    await productService.deleteProduct(req.params.id);
+
+    res.status(200).json({
+      success: true,
+      message: "Product deleted successfully",
+    });
+  });
+
+  getProductsByCategoryAndGSM = catchAsync(async (req, res) => {
+    const { categoryId, gsm } = req.params;
+    const products = await productService.getProductsByCategoryAndGSM(
+      categoryId,
+      parseInt(gsm)
+    );
+
+    res.status(200).json({
+      success: true,
+      count: products.length,
+      data: products,
+    });
+  });
+
+  bulkCreateProducts = catchAsync(async (req, res) => {
+    const results = await productService.bulkCreateProducts(req.body.products);
+
+    res.status(201).json({
+      success: true,
+      message: "Bulk product creation completed",
+      data: results,
+    });
+  });
+}
+
+module.exports = new ProductController();

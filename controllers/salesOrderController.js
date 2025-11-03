@@ -117,7 +117,7 @@ const createSalesOrder = handleAsyncErrors(async (req, res) => {
     total: subtotal + taxAmount,
     creditCheckPassed: false, // Will be updated on confirmation
     notes,
-    createdBy: req.user._id,
+    createdBy: req.user ? req.user._id : undefined,
   });
 
   const populatedOrder = await SalesOrder.findById(salesOrder._id)
@@ -147,7 +147,7 @@ const confirmSalesOrder = handleAsyncErrors(async (req, res) => {
 
   salesOrder.status = "Confirmed";
   salesOrder.creditCheckPassed = creditCheckPassed;
-  salesOrder.confirmedBy = req.user._id;
+  salesOrder.confirmedBy = req.user ? req.user._id : undefined;
   salesOrder.confirmedAt = new Date();
   await salesOrder.save();
 

@@ -1,3 +1,4 @@
+// models/Product.js
 const mongoose = require("mongoose");
 
 const productSchema = new mongoose.Schema(
@@ -6,50 +7,58 @@ const productSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
       required: [true, "Category is required"],
-    },
-    categoryName: {
-      type: String,
-      required: true,
+      index: true,
     },
     gsm: {
       type: Number,
       required: [true, "GSM is required"],
-      enum: [30, 35, 45, 55, 65, 80],
+      min: 1,
+      index: true,
     },
     qualityName: {
       type: String,
       required: [true, "Quality name is required"],
-      enum: ["Premium", "Standard", "Economy", "Custom"],
+      trim: true,
+      index: true,
     },
-    qualityAliases: [
-      {
-        type: String,
-      },
-    ],
+    productCode: {
+      type: String,
+      required: false,
+      unique: true,
+      sparse: true,
+    },
     hsnCode: {
       type: String,
       required: [true, "HSN code is required"],
     },
+    taxRate: {
+      type: Number,
+      default: 18,
+      min: 0,
+      max: 100,
+    },
     active: {
       type: Boolean,
       default: true,
+      index: true,
     },
   },
   {
     timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   }
 );
 
-// Indexes
-productSchema.index({ categoryId: 1 });
-productSchema.index({ gsm: 1 });
-productSchema.index({ active: 1 });
-productSchema.index({ categoryName: 1, gsm: 1 });
+// Ensure unique combination of categoryId + gsm + qualityName
+productSchema.index({ categoryId: 1, gsm: 1, qualityName: 1 }, { unique: true });
 
-// Unique compound index
-productSchema.index(
-  { categoryId: 1, gsm: 1, qualityName: 1 },
-  { unique: true }
-);
+// Virtual to populate category via categoryId
+productSchema.virtual("category", {
+  ref: "Category",
+  localField: "categoryId",
+  foreignField: "_id",
+  justOne: true,
+});
 
 module.exports = mongoose.model("Product", productSchema);

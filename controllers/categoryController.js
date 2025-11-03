@@ -1,92 +1,78 @@
-const Category = require("../models/Category");
-const { handleAsyncErrors, AppError } = require("../utils/errorHandler");
+const categoryService = require("../services/categoryService");
+const catchAsync = require("../utils/catchAsync");
 
-// Get all categories
-const getCategories = handleAsyncErrors(async (req, res) => {
-  const { active } = req.query;
-  const filter = {};
+class CategoryController {
+  createCategory = catchAsync(async (req, res) => {
+    const category = await categoryService.createCategory(req.body);
 
-  if (active !== undefined) {
-    filter.active = active === "true";
-  }
-
-  const categories = await Category.find(filter).sort({ name: 1 });
-
-  res.json({
-    success: true,
-    count: categories.length,
-    data: categories,
-  });
-});
-
-// Get single category
-const getCategory = handleAsyncErrors(async (req, res) => {
-  const category = await Category.findById(req.params.id);
-
-  if (!category) {
-    throw new AppError("Category not found", 404, "RESOURCE_NOT_FOUND");
-  }
-
-  res.json({
-    success: true,
-    data: category,
-  });
-});
-
-// Create category
-const createCategory = handleAsyncErrors(async (req, res) => {
-  const { name, hsnCode } = req.body;
-
-  const category = await Category.create({
-    name,
-    hsnCode,
+    res.status(201).json({
+      success: true,
+      message: "Category created successfully",
+      data: category,
+    });
   });
 
-  res.status(201).json({
-    success: true,
-    data: category,
+  getAllCategories = catchAsync(async (req, res) => {
+    const filters = {
+      active:
+        req.query.active === "true"
+          ? true
+          : req.query.active === "false"
+          ? false
+          : undefined,
+    };
+
+    const categories = await categoryService.getAllCategories(filters);
+
+    res.status(200).json({
+      success: true,
+      count: categories.length,
+      data: categories,
+    });
   });
-});
 
-// Update category
-const updateCategory = handleAsyncErrors(async (req, res) => {
-  const category = await Category.findByIdAndUpdate(req.params.id, req.body, {
-    new: true,
-    runValidators: true,
+  getCategoryById = catchAsync(async (req, res) => {
+    const category = await categoryService.getCategoryById(req.params.id);
+
+    res.status(200).json({
+      success: true,
+      data: category,
+    });
   });
 
-  if (!category) {
-    throw new AppError("Category not found", 404, "RESOURCE_NOT_FOUND");
-  }
+  updateCategory = catchAsync(async (req, res) => {
+    const category = await categoryService.updateCategory(
+      req.params.id,
+      req.body
+    );
 
-  res.json({
-    success: true,
-    data: category,
+    res.status(200).json({
+      success: true,
+      message: "Category updated successfully",
+      data: category,
+    });
   });
-});
 
-// Delete category
-const deleteCategory = handleAsyncErrors(async (req, res) => {
-  const category = await Category.findById(req.params.id);
+  toggleCategoryStatus = catchAsync(async (req, res) => {
+    const category = await categoryService.toggleCategoryStatus(req.params.id);
 
-  if (!category) {
-    throw new AppError("Category not found", 404, "RESOURCE_NOT_FOUND");
-  }
-
-  // Soft delete
-  category.active = false;
-  await category.save();
-
-  res.json({
-    success: true,
-    message: "Category deactivated successfully",
+    res.status(200).json({
+      success: true,
+      message: `Category ${
+        category.active ? "activated" : "deactivated"
+      } successfully`,
+      data: category,
+    });
   });
-});
 
-module.exports = {
-  getCategories,
-  getCategory,
-  createCategory,
-  updateCategory,
-  deleteCategory,
-};
+  deleteCategory = catchAsync(async (req, res) => {
+    await categoryService.deleteCategory(req.params.id);
+
+    res.status(200).json({
+      success: true,
+      message: "Category deleted successfully",
+    });
+  });
+}
+
+module.exports = new CategoryController();

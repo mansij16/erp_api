@@ -7,36 +7,25 @@ const skuSchema = new mongoose.Schema(
       ref: "Product",
       required: [true, "Product is required"],
     },
-    categoryName: {
-      type: String,
-      required: true,
-    },
-    gsm: {
-      type: Number,
-      required: true,
-    },
-    qualityName: {
-      type: String,
-      required: true,
-    },
     widthInches: {
       type: Number,
       required: [true, "Width is required"],
-      enum: [24, 36, 44, 63],
+      enum: [24, 36, 44, 63], // Fixed widths as per PRD
     },
     defaultLengthMeters: {
       type: Number,
       required: [true, "Default length is required"],
-      enum: [1000, 1500, 2000],
-    },
-    taxRate: {
-      type: Number,
-      default: 18,
+      default: 1000,
+      enum: [1000, 1500, 2000], // Can have custom lengths too
     },
     skuCode: {
       type: String,
       unique: true,
       required: true,
+    },
+    taxRate: {
+      type: Number,
+      default: 18,
     },
     active: {
       type: Boolean,
@@ -49,20 +38,16 @@ const skuSchema = new mongoose.Schema(
 );
 
 // Indexes
-skuSchema.index({ productId: 1 });
+skuSchema.index({ productId: 1, widthInches: 1 }, { unique: true });
 skuSchema.index({ skuCode: 1 });
 skuSchema.index({ active: 1 });
-// Removed compound unique index to allow multiple SKUs per product+width for different lengths
-// skuSchema.index({ productId: 1, widthInches: 1 }, { unique: true });
 
-// Generate SKU code before saving
-skuSchema.pre("save", function (next) {
-  if (!this.skuCode) {
-    const cat = this.categoryName === "Sublimation" ? "SUB" : "BTR";
-    const quality = this.qualityName.substring(0, 4).toUpperCase();
-    this.skuCode = `${cat}-${this.gsm}-${quality}-${this.widthInches}-${this.defaultLengthMeters}`;
-  }
-  next();
+// Virtual to populate product details
+skuSchema.virtual("product", {
+  ref: "Product",
+  localField: "productId",
+  foreignField: "_id",
+  justOne: true,
 });
 
 module.exports = mongoose.model("SKU", skuSchema);

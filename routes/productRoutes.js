@@ -1,15 +1,27 @@
+// routes/productRoutes.js
 const express = require("express");
 const router = express.Router();
-const {
-  getProducts,
-  getProduct,
-  createProduct,
-  updateProduct,
-  deleteProduct,
-} = require("../controllers/productController");
+const productController = require("../controllers/productController");
+// const { authorize } = require("../middleware/authMiddleware");
 
-router.route("/").get(getProducts).post(createProduct);
+// All routes require authentication
+// router.use(authenticate);
 
-router.route("/:id").get(getProduct).put(updateProduct).delete(deleteProduct);
+// Public routes
+router.get("/", productController.getAllProducts);
+router.get("/:id", productController.getProductById);
+router.get(
+  "/category/:categoryId/gsm/:gsm",
+  productController.getProductsByCategoryAndGSM
+);
+
+// Admin only routes
+// router.use(authorize(["admin", "super_admin"]));
+
+router.post("/", productController.createProduct);
+router.post("/bulk", productController.bulkCreateProducts);
+router.patch("/:id", productController.updateProduct);
+router.patch("/:id/toggle-status", productController.toggleProductStatus);
+router.delete("/:id", productController.deleteProduct);
 
 module.exports = router;
