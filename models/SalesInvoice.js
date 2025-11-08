@@ -20,7 +20,7 @@ const salesInvoiceLineSchema = new mongoose.Schema({
     ref: "SKU",
   },
   categoryName: String,
-  gsm: Number,
+  gsm: String,
   qualityName: String,
   widthInches: Number,
   qtyRolls: Number,

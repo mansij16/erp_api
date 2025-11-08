@@ -1,21 +1,26 @@
 const express = require("express");
 const router = express.Router();
-const {
-  getCustomers,
-  getCustomer,
-  createCustomer,
-  updateCustomer,
-  checkCredit,
-  blockCustomer,
-  unblockCustomer,
-} = require("../controllers/customerController");
+const customerController = require("../controllers/customerController");
+// const { authenticate, authorize } = require("../middlewares/auth");
 
-router.route("/").get(getCustomers).post(createCustomer);
+// router.use(authenticate);
 
-router.route("/:id").get(getCustomer).put(updateCustomer);
+// Public routes
+router.get("/", customerController.getCustomers);
+router.get("/:id", customerController.getCustomer);
+router.get("/:id/credit-check", customerController.checkCredit);
 
-router.post("/:id/check-credit", checkCredit);
-router.post("/:id/block", blockCustomer);
-router.post("/:id/unblock", unblockCustomer);
+// Sales team routes
+// router.use(authorize(["admin", "sales_manager", "sales_exec"]));
+
+router.post("/", customerController.createCustomer);
+router.patch("/:id", customerController.updateCustomer);
+
+// Admin only
+// router.use(authorize(["admin", "super_admin"]));
+
+router.post("/:id/block", customerController.blockCustomer);
+router.post("/:id/unblock", customerController.unblockCustomer);
+router.delete("/:id", customerController.deleteCustomer);
 
 module.exports = router;

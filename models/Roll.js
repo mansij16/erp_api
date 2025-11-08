@@ -2,26 +2,21 @@ const mongoose = require("mongoose");
 
 const rollSchema = new mongoose.Schema(
   {
-    // SKU mapping - can be null initially (unmapped)
     skuId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "SKU",
-      default: null, // Can be unmapped initially
+      default: null,
     },
-
-    // Batch and vendor traceability
     batchId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Batch",
       required: true,
     },
-    vendorId: {
+    supplierId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Supplier",
       required: true,
     },
-
-    // Physical attributes
     widthInches: {
       type: Number,
       required: true,
@@ -37,8 +32,8 @@ const rollSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
-
-    // Status tracking
+    gsm: String,
+    qualityGrade: String,
     status: {
       type: String,
       enum: [
@@ -52,8 +47,10 @@ const rollSchema = new mongoose.Schema(
       default: "Unmapped",
       required: true,
     },
-
-    // Cost tracking
+    baseCostPerMeter: {
+      type: Number,
+      default: 0,
+    },
     landedCostPerMeter: {
       type: Number,
       default: 0,
@@ -62,38 +59,71 @@ const rollSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-
     // Barcode - Format: YYMM-SUP-BATCH-SEQ-CHECK
     barcode: {
       type: String,
       unique: true,
       required: true,
     },
-    qrPayload: {
-      type: Object, // Will store complete QR data
-    },
-
-    // GRN reference
+    // qrPayload: {
+    //   type: Object, // Will store complete QR data
+    // },
+    qrCode: String,
     grnId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "GRN",
     },
-
-    // For returned/partial rolls
-    parentRollId: {
+    poLineId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Roll",
-      default: null,
+      ref: "PurchaseOrderLine",
     },
-    returnReason: String,
-
+    // For allocated/dispatched rolls
+    allocationDetails: {
+      soLineId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "SalesOrderLine",
+      },
+      allocatedAt: Date,
+      allocatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    },
+    // For dispatched rolls
+    dispatchDetails: {
+      dcId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "DeliveryChallan",
+      },
+      dispatchedAt: Date,
+      dispatchedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    },
+    // For returned/partial rolls
+    returnDetails: {
+      parentRollId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Roll",
+      },
+      returnReason: String,
+      returnedAt: Date,
+      inspectionNotes: String,
+    },
     // Timestamps for aging
     inwardedAt: {
       type: Date,
       default: Date.now,
     },
     mappedAt: Date,
-    dispatchedAt: Date,
+    // Location tracking
+    warehouseLocation: {
+      zone: String,
+      rack: String,
+      bin: String,
+    },
+    notes: String,
   },
   {
     timestamps: true,
@@ -102,11 +132,25 @@ const rollSchema = new mongoose.Schema(
 
 // Indexes for performance
 rollSchema.index({ status: 1 });
-rollSchema.index({ skuId: 1 });
+rollSchema.index({ skuId: 1, status: 1 });
 rollSchema.index({ batchId: 1 });
-rollSchema.index({ vendorId: 1 });
+rollSchema.index({ supplierId: 1 });
 rollSchema.index({ barcode: 1 });
 rollSchema.index({ status: 1, inwardedAt: 1 }); // For unmapped aging
+rollSchema.index({ "allocationDetails.soLineId": 1 });
+
+// Virtual for age in days
+rollSchema.virtual("ageInDays").get(function () {
+  return Math.floor((Date.now() - this.inwardedAt) / (1000 * 60 * 60 * 24));
+});
+
+// Virtual for unmapped age in days
+rollSchema.virtual("unmappedAgeInDays").get(function () {
+  if (this.status === "Unmapped") {
+    return Math.floor((Date.now() - this.inwardedAt) / (1000 * 60 * 60 * 24));
+  }
+  return null;
+});
 
 // Generate barcode before saving
 rollSchema.pre("save", async function (next) {
@@ -118,10 +162,9 @@ rollSchema.pre("save", async function (next) {
       .toString()
       .padStart(2, "0")}`;
 
-    // Get supplier code (first 3 letters)
-    const supplier = await mongoose.model("Supplier").findById(this.vendorId);
-    const supCode =
-      supplier.code || supplier.name.substring(0, 3).toUpperCase();
+    // Get supplier code
+    const supplier = await mongoose.model("Supplier").findById(this.supplierId);
+    const supCode = supplier.code.substring(0, 3);
 
     // Get batch code
     const batch = await mongoose.model("Batch").findById(this.batchId);
@@ -133,7 +176,7 @@ rollSchema.pre("save", async function (next) {
     });
     const seq = (count + 1).toString().padStart(4, "0");
 
-    // Generate check digit (simple modulo 10)
+    // Generate check digit
     const baseCode = `${yymm}-${supCode}-${batchCode}-${seq}`;
     const checkDigit =
       baseCode.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0) %
@@ -141,21 +184,20 @@ rollSchema.pre("save", async function (next) {
 
     this.barcode = `${baseCode}-${checkDigit}`;
 
-    // Generate QR payload
-    this.qrPayload = {
-      roll_id: this._id,
-      sku_id: this.skuId,
-      batch_id: this.batchId,
-      vendor_id: this.vendorId,
-      width_in: this.widthInches,
-      length_m: this.currentLengthMeters,
-      landed_cost: this.totalLandedCost,
-    };
+    // Generate QR code data
+    this.qrCode = JSON.stringify({
+      b: this.barcode,
+      s: this.skuId,
+      w: this.widthInches,
+      l: this.currentLengthMeters,
+    });
   }
 
   // Calculate total landed cost
   if (this.landedCostPerMeter && this.currentLengthMeters) {
-    this.totalLandedCost = this.landedCostPerMeter * this.currentLengthMeters;
+    this.totalLandedCost =
+      Math.round(this.landedCostPerMeter * this.currentLengthMeters * 100) /
+      100;
   }
 
   next();

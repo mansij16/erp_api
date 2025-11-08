@@ -1,104 +1,121 @@
-const Supplier = require("../models/Supplier");
-const numberingService = require("../services/numberingService");
-const { handleAsyncErrors, AppError } = require("../utils/errorHandler");
+const supplierService = require("../services/supplierService");
+const catchAsync = require("../utils/catchAsync");
 
-// Get all suppliers
-const getSuppliers = handleAsyncErrors(async (req, res) => {
-  const { active, state } = req.query;
-  const filter = {};
+class SupplierController {
+  createSupplier = catchAsync(async (req, res) => {
+    const supplier = await supplierService.createSupplier(req.body);
 
-  if (active !== undefined) filter.active = active === "true";
-  if (state) filter.state = state;
-
-  const suppliers = await Supplier.find(filter).sort({ name: 1 });
-
-  res.json({
-    success: true,
-    count: suppliers.length,
-    data: suppliers,
-  });
-});
-
-// Get single supplier
-const getSupplier = handleAsyncErrors(async (req, res) => {
-  const supplier = await Supplier.findById(req.params.id);
-
-  if (!supplier) {
-    throw new AppError("Supplier not found", 404, "RESOURCE_NOT_FOUND");
-  }
-
-  res.json({
-    success: true,
-    data: supplier,
-  });
-});
-
-// Create supplier
-const createSupplier = handleAsyncErrors(async (req, res) => {
-  const { name, state, address, contactPersons } = req.body;
-
-  // Generate supplier code
-  const lastSupplier = await Supplier.findOne().sort({ supplierCode: -1 });
-  let sequence = 1;
-  if (lastSupplier) {
-    const lastSequence = parseInt(lastSupplier.supplierCode.split("-")[1]);
-    sequence = lastSequence + 1;
-  }
-  const supplierCode = numberingService.generateSupplierCode(sequence);
-
-  const supplier = await Supplier.create({
-    supplierCode,
-    name,
-    state,
-    address,
-    contactPersons,
+    res.status(201).json({
+      success: true,
+      message: "Supplier created successfully",
+      data: supplier,
+    });
   });
 
-  res.status(201).json({
-    success: true,
-    data: supplier,
+  getAllSuppliers = catchAsync(async (req, res) => {
+    const filters = {
+      active:
+        req.query.active === "true"
+          ? true
+          : req.query.active === "false"
+          ? false
+          : undefined,
+      preferredSupplier: req.query.preferredSupplier === "true",
+      category: req.query.category,
+      search: req.query.search,
+    };
+
+    const pagination = {
+      page: req.query.page,
+      limit: req.query.limit,
+    };
+
+    const result = await supplierService.getAllSuppliers(filters, pagination);
+
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
   });
-});
 
-// Update supplier
-const updateSupplier = handleAsyncErrors(async (req, res) => {
-  const supplier = await Supplier.findByIdAndUpdate(req.params.id, req.body, {
-    new: true,
-    runValidators: true,
+  getSupplierById = catchAsync(async (req, res) => {
+    const supplier = await supplierService.getSupplierById(req.params.id);
+
+    res.status(200).json({
+      success: true,
+      data: supplier,
+    });
   });
 
-  if (!supplier) {
-    throw new AppError("Supplier not found", 404, "RESOURCE_NOT_FOUND");
-  }
+  getSupplierByCode = catchAsync(async (req, res) => {
+    const supplier = await supplierService.getSupplierByCode(req.params.code);
 
-  res.json({
-    success: true,
-    data: supplier,
+    res.status(200).json({
+      success: true,
+      data: supplier,
+    });
   });
-});
 
-// Delete supplier
-const deleteSupplier = handleAsyncErrors(async (req, res) => {
-  const supplier = await Supplier.findById(req.params.id);
+  updateSupplier = catchAsync(async (req, res) => {
+    const supplier = await supplierService.updateSupplier(
+      req.params.id,
+      req.body
+    );
 
-  if (!supplier) {
-    throw new AppError("Supplier not found", 404, "RESOURCE_NOT_FOUND");
-  }
-
-  // Soft delete
-  supplier.active = false;
-  await supplier.save();
-
-  res.json({
-    success: true,
-    message: "Supplier deactivated successfully",
+    res.status(200).json({
+      success: true,
+      message: "Supplier updated successfully",
+      data: supplier,
+    });
   });
-});
 
-module.exports = {
-  getSuppliers,
-  getSupplier,
-  createSupplier,
-  updateSupplier,
-  deleteSupplier,
-};
+  toggleSupplierStatus = catchAsync(async (req, res) => {
+    const supplier = await supplierService.toggleSupplierStatus(req.params.id);
+
+    res.status(200).json({
+      success: true,
+      message: `Supplier ${
+        supplier.active ? "activated" : "deactivated"
+      } successfully`,
+      data: supplier,
+    });
+  });
+
+  deleteSupplier = catchAsync(async (req, res) => {
+    await supplierService.deleteSupplier(req.params.id);
+
+    res.status(200).json({
+      success: true,
+      message: "Supplier deleted successfully",
+    });
+  });
+
+  updateSupplierRating = catchAsync(async (req, res) => {
+    const { rating, notes } = req.body;
+    const supplier = await supplierService.updateSupplierRating(
+      req.params.id,
+      rating,
+      notes
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Supplier rating updated successfully",
+      data: supplier,
+    });
+  });
+
+  getSuppliersByProduct = catchAsync(async (req, res) => {
+    const suppliers = await supplierService.getSuppliersByProduct(
+      req.params.productId
+    );
+
+    res.status(200).json({
+      success: true,
+      count: suppliers.length,
+      data: suppliers,
+    });
+  });
+}
+
+module.exports = new SupplierController();

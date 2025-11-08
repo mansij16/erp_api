@@ -25,8 +25,13 @@ const customerRateSchema = new mongoose.Schema(
     },
     validTo: {
       type: Date,
-      default: null, // null means currently active
+      default: null,
     },
+    isSpecialRate: {
+      type: Boolean,
+      default: false,
+    },
+    specialRateReason: String,
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -42,19 +47,33 @@ const customerRateSchema = new mongoose.Schema(
   }
 );
 
-// Compound index for finding active rates
+// Indexes
 customerRateSchema.index({
   customerId: 1,
   productId: 1,
   active: 1,
   validFrom: -1,
 });
+customerRateSchema.index({ customerId: 1, active: 1 });
 
-// Method to calculate rate for any width
+// Methods
 customerRateSchema.methods.calculateRateForWidth = function (widthInches) {
-  // Formula: rate = baseRate44 * (width / 44)
   const calculatedRate = this.baseRate44 * (widthInches / 44);
-  return Math.round(calculatedRate); // Round to nearest rupee
+  return Math.round(calculatedRate);
+};
+
+customerRateSchema.statics.getActiveRate = async function (
+  customerId,
+  productId,
+  date = new Date()
+) {
+  return this.findOne({
+    customerId,
+    productId,
+    active: true,
+    validFrom: { $lte: date },
+    $or: [{ validTo: null }, { validTo: { $gte: date } }],
+  }).sort({ validFrom: -1 });
 };
 
 module.exports = mongoose.model("CustomerRate", customerRateSchema);

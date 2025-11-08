@@ -2,6 +2,11 @@ const mongoose = require("mongoose");
 
 const skuSchema = new mongoose.Schema(
   {
+    skuCode: {
+      type: String,
+      unique: true,
+      required: false, // Will be auto-generated
+    },
     productId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Product",
@@ -11,17 +16,6 @@ const skuSchema = new mongoose.Schema(
       type: Number,
       required: [true, "Width is required"],
       enum: [24, 36, 44, 63], // Fixed widths as per PRD
-    },
-    defaultLengthMeters: {
-      type: Number,
-      required: [true, "Default length is required"],
-      default: 1000,
-      enum: [1000, 1500, 2000], // Can have custom lengths too
-    },
-    skuCode: {
-      type: String,
-      unique: true,
-      required: true,
     },
     taxRate: {
       type: Number,
@@ -41,6 +35,34 @@ const skuSchema = new mongoose.Schema(
 skuSchema.index({ productId: 1, widthInches: 1 }, { unique: true });
 skuSchema.index({ skuCode: 1 });
 skuSchema.index({ active: 1 });
+
+// Auto-generate skuCode: productCode-widthInches
+skuSchema.pre("save", async function (next) {
+  // Only generate if skuCode is not set and we have required fields
+  if (!this.skuCode && this.productId && this.widthInches) {
+    try {
+      const Product = mongoose.model("Product");
+      let product = this.productId;
+      
+      // Check if productId is populated (has productCode property) or just an ObjectId
+      if (product && product.productCode) {
+        // Already populated with product document
+        this.skuCode = `${product.productCode}-${this.widthInches}`;
+      } else {
+        // productId is an ObjectId, need to fetch the product
+        const fetchedProduct = await Product.findById(this.productId);
+        if (fetchedProduct && fetchedProduct.productCode) {
+          this.skuCode = `${fetchedProduct.productCode}-${this.widthInches}`;
+        } else {
+          return next(new Error("Product not found or productCode missing"));
+        }
+      }
+    } catch (error) {
+      return next(error);
+    }
+  }
+  next();
+});
 
 // Virtual to populate product details
 skuSchema.virtual("product", {

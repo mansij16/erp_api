@@ -22,7 +22,7 @@ class SKUService {
 
     const sku = await SKU.create(data);
     return sku.populate({
-      path: "product",
+      path: "productId",
       populate: { path: "category" },
     });
   }
@@ -45,9 +45,24 @@ class SKUService {
 
     // For searching by category or GSM, we need to join with product
     if (filters.categoryId || filters.gsm) {
+      const Product = require("../models/Product");
+      const GSM = require("../models/GSM");
       const productQuery = {};
       if (filters.categoryId) productQuery.categoryId = filters.categoryId;
-      if (filters.gsm) productQuery.gsm = filters.gsm;
+      if (filters.gsm) {
+        // Find GSM by name if provided as string
+        if (filters.gsm.match(/^[0-9a-fA-F]{24}$/)) {
+          productQuery.gsmId = filters.gsm;
+        } else {
+          const gsm = await GSM.findOne({ name: filters.gsm });
+          if (gsm) {
+            productQuery.gsmId = gsm._id;
+          } else {
+            // No matching GSM, return empty results
+            productQuery.gsmId = null;
+          }
+        }
+      }
 
       const products = await Product.find(productQuery).select("_id");
       query.productId = { $in: products.map((p) => p._id) };
@@ -61,7 +76,7 @@ class SKUService {
     const [skus, total] = await Promise.all([
       SKU.find(query)
         .populate({
-          path: "product",
+          path: "productId",
           populate: { path: "category" },
         })
         .sort({ skuCode: 1 })
@@ -83,7 +98,7 @@ class SKUService {
 
   async getSKUById(id) {
     const sku = await SKU.findById(id).populate({
-      path: "product",
+      path: "productId",
       populate: { path: "category" },
     });
 
@@ -96,7 +111,7 @@ class SKUService {
 
   async getSKUByCode(skuCode) {
     const sku = await SKU.findOne({ skuCode }).populate({
-      path: "product",
+      path: "productId",
       populate: { path: "category" },
     });
 
@@ -117,7 +132,7 @@ class SKUService {
       new: true,
       runValidators: true,
     }).populate({
-      path: "product",
+      path: "productId",
       populate: { path: "category" },
     });
 
@@ -139,7 +154,7 @@ class SKUService {
     await sku.save();
 
     return sku.populate({
-      path: "product",
+      path: "productId",
       populate: { path: "category" },
     });
   }
@@ -178,7 +193,6 @@ class SKUService {
         const sku = await this.createSKU({
           productId,
           widthInches: width,
-          defaultLengthMeters: 1000,
         });
         results.success.push(sku);
       } catch (error) {
@@ -213,7 +227,7 @@ class SKUService {
       _id: { $in: skuIds },
       active: true,
     }).populate({
-      path: "product",
+      path: "productId",
       populate: { path: "category" },
     });
 

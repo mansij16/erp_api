@@ -5,11 +5,17 @@ const cors = require("cors");
 const helmet = require("helmet");
 const mongoSanitize = require("express-mongo-sanitize");
 const rateLimit = require("express-rate-limit");
+const path = require("path");
+const { fork } = require("child_process");
 
 // Import routes
 const categoryRoutes = require("./routes/categoryRoutes");
 const productRoutes = require("./routes/productRoutes");
 const skuRoutes = require("./routes/skuRoutes");
+const supplierRoutes = require("./routes/supplierRoutes");
+const rollRoutes = require("./routes/rollRoutes");
+const customerRoutes = require("./routes/customerRoutes");
+const pricingRoutes = require("./routes/pricingRoutes");
 
 // Import error handler
 const globalErrorHandler = require("./middlewares/errorMiddleware");
@@ -36,6 +42,10 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use("/api/v1/categories", categoryRoutes);
 app.use("/api/v1/products", productRoutes);
 app.use("/api/v1/skus", skuRoutes);
+app.use("/api/v1/suppliers", supplierRoutes);
+app.use("/api/v1/rolls", rollRoutes);
+app.use("/api/v1/customers", customerRoutes);
+app.use("/api/v1/pricing", pricingRoutes);
 
 // Health check
 app.get("/api/v1/health", (req, res) => {
@@ -70,7 +80,21 @@ mongoose
     useNewUrlParser: true,
     useUnifiedTopology: true,
   })
-  .then(() => console.log("MongoDB connected successfully"))
+  .then(() => {
+    console.log("MongoDB connected successfully");
+    if (process.env.SEED_DB === "true") {
+      const seederPath = path.resolve(__dirname, "seeds", "seedMasterData.js");
+      console.log("Starting database seeder:", seederPath);
+      const child = fork(seederPath, [], { stdio: "inherit" });
+      child.on("exit", (code) => {
+        if (code === 0) {
+          console.log("Database seeding completed successfully.");
+        } else {
+          console.error("Database seeding failed with code:", code);
+        }
+      });
+    }
+  })
   .catch((err) => console.error("MongoDB connection error:", err));
 
 const PORT = process.env.PORT || 3000;

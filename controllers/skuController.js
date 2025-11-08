@@ -19,7 +19,7 @@ class SKUController {
         ? parseInt(req.query.widthInches)
         : undefined,
       categoryId: req.query.categoryId,
-      gsm: req.query.gsm ? parseInt(req.query.gsm) : undefined,
+      gsm: req.query.gsm ? req.query.gsm : undefined,
       active:
         req.query.active === "true"
           ? true

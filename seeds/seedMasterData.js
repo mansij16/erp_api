@@ -1,10 +1,13 @@
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const Category = require("../models/Category");
+const GSM = require("../models/GSM");
+const Quality = require("../models/Quality");
 const Product = require("../models/Product");
 const SKU = require("../models/SKU");
 const Supplier = require("../models/Supplier");
 const Customer = require("../models/Customer");
+const CustomerRate = require("../models/CustomerRate");
 const Ledger = require("../models/Ledger");
 
 dotenv.config();
@@ -13,59 +16,99 @@ const seedData = async () => {
   try {
     // Connect to MongoDB
     await mongoose.connect(
-      process.env.MONGODB_URI || "mongodb+srv://root:root@aimarketingcluster.irykf5p.mongodb.net/?retryWrites=true&w=majority&appName=AIMarketingCluster"
+      process.env.MONGODB_URI ||
+        "mongodb+srv://root:root@aimarketingcluster.irykf5p.mongodb.net/?retryWrites=true&w=majority&appName=AIMarketingCluster"
     );
     console.log("Connected to MongoDB");
 
     // Drop problematic compound index if it exists
     try {
       const db = mongoose.connection.db;
-      const collection = db.collection('skus');
+      const collection = db.collection("skus");
       const indexes = await collection.indexes();
 
-      const compoundIndexName = 'productId_1_widthInches_1';
-      const indexExists = indexes.some(idx => idx.name === compoundIndexName);
+      const compoundIndexName = "productId_1_widthInches_1";
+      const indexExists = indexes.some((idx) => idx.name === compoundIndexName);
 
       if (indexExists) {
         await collection.dropIndex(compoundIndexName);
-        console.log('Dropped problematic compound index');
+        console.log("Dropped problematic compound index");
       }
     } catch (error) {
-      console.log('No problematic index found or error dropping:', error.message);
+      console.log(
+        "No problematic index found or error dropping:",
+        error.message
+      );
     }
 
     // Clear existing data (with error handling for existing data)
     try {
       await Category.deleteMany({});
+      await GSM.deleteMany({});
+      await Quality.deleteMany({});
       await Product.deleteMany({});
       await SKU.deleteMany({});
       await Supplier.deleteMany({});
       await Customer.deleteMany({});
       await Ledger.deleteMany({});
+      await CustomerRate.deleteMany({});
       console.log("Existing data cleared");
     } catch (error) {
       console.log("Error clearing data (may not exist yet):", error.message);
     }
 
-    // Seed Categories
+    // Seed Categories (align with Category model: name + code + hsnCode)
     const categories = await Category.insertMany([
-      { name: "Sublimation", hsnCode: "4809", active: true },
-      { name: "Butter", hsnCode: "4806", active: true },
+      { name: "Sublimation", code: "SUB", hsnCode: "4809", active: true },
+      { name: "Butter", code: "BTR", hsnCode: "4806", active: true },
     ]);
     console.log("Categories seeded");
 
-    // Seed Products
+    // Seed GSM records
+    const gsmRecords = await GSM.insertMany([
+      { name: "30 GSM", value: 30, active: true },
+      { name: "35 GSM", value: 35, active: true },
+      { name: "45 GSM", value: 45, active: true },
+      { name: "55 GSM", value: 55, active: true },
+      { name: "65 GSM", value: 65, active: true },
+      { name: "80 GSM", value: 80, active: true },
+    ]);
+    console.log("GSM records seeded");
+
+    // Create GSM map for easy lookup
+    const gsmMap = new Map(gsmRecords.map((g) => [g.name, g._id]));
+
+    // Seed Quality records
+    const qualityRecords = await Quality.insertMany([
+      { name: "Premium", active: true },
+      { name: "Standard", active: true },
+      { name: "Economy", active: true },
+    ]);
+    console.log("Quality records seeded");
+
+    // Create Quality map for easy lookup
+    const qualityMap = new Map(qualityRecords.map((q) => [q.name, q._id]));
+
+    // Seed Products (align with Product model)
     const products = [];
     for (const category of categories) {
-      for (const gsm of [30, 35, 45, 55, 65, 80]) {
-        for (const quality of ["Premium", "Standard", "Economy"]) {
+      for (const gsmName of ["30 GSM", "35 GSM", "45 GSM", "55 GSM", "65 GSM", "80 GSM"]) {
+        for (const qualityName of ["Premium", "Standard", "Economy"]) {
+          const gsmId = gsmMap.get(gsmName);
+          const qualityId = qualityMap.get(qualityName);
+          
+          if (!gsmId || !qualityId) {
+            console.error(`Missing GSM or Quality for ${gsmName} / ${qualityName}`);
+            continue;
+          }
+
           products.push({
             categoryId: category._id,
-            categoryName: category.name,
-            gsm,
-            qualityName: quality,
-            qualityAliases: [],
+            gsmId: gsmId,
+            qualityId: qualityId,
             hsnCode: category.hsnCode,
+            taxRate: 18,
+            defaultLengthMeters: 1000, // Required field: enum [1000, 1500, 2000]
             active: true,
           });
         }
@@ -76,24 +119,31 @@ const seedData = async () => {
     console.log("Products seeded");
 
     // Seed SKUs
+    // Prepare category map for SKU code generation
+    const categoryMap = new Map(categories.map((c) => [String(c._id), c]));
+
+    // Populate products with GSM and Quality for SKU code generation
+    const populatedProducts = await Product.find({ _id: { $in: insertedProducts.map(p => p._id) } })
+      .populate("gsmId")
+      .populate("qualityId")
+      .populate("categoryId");
+
     const skus = [];
-    for (const product of insertedProducts) {
+    for (const product of populatedProducts) {
+      const cat = categoryMap.get(String(product.categoryId));
+      const catCode = cat?.code || "CAT";
+      const gsmName = product.gsmId?.name || "";
+      const qualityName = product.qualityId?.name || "";
+      const quality = qualityName.substring(0, 4).toUpperCase();
+      
       for (const width of [24, 36, 44, 63]) {
-        for (const length of [1000, 1500, 2000]) {
-          const cat = product.categoryName === "Sublimation" ? "SUB" : "BTR";
-          const quality = product.qualityName.substring(0, 4).toUpperCase();
-          skus.push({
-            productId: product._id,
-            categoryName: product.categoryName,
-            gsm: product.gsm,
-            qualityName: product.qualityName,
-            widthInches: width,
-            defaultLengthMeters: length,
-            taxRate: 18,
-            skuCode: `${cat}-${product.gsm}-${quality}-${width}-${length}`,
-            active: true,
-          });
-        }
+        skus.push({
+          productId: product._id,
+          widthInches: width,
+          taxRate: 18,
+          skuCode: `${catCode}-${gsmName}-${quality}-${width}-${product.defaultLengthMeters}`,
+          active: true,
+        });
       }
     }
 
@@ -105,8 +155,10 @@ const seedData = async () => {
       if (error.code === 11000) {
         console.log("Some SKUs already exist, skipping duplicates...");
         // Get existing SKU codes
-        const existingSkuCodes = await SKU.distinct('skuCode');
-        const newSkus = skus.filter(sku => !existingSkuCodes.includes(sku.skuCode));
+        const existingSkuCodes = await SKU.distinct("skuCode");
+        const newSkus = skus.filter(
+          (sku) => !existingSkuCodes.includes(sku.skuCode)
+        );
 
         if (newSkus.length > 0) {
           const result = await SKU.insertMany(newSkus, { ordered: false });
@@ -120,37 +172,63 @@ const seedData = async () => {
       }
     }
 
-    // Seed Suppliers with duplicate handling
+    // Seed Suppliers with duplicate handling (align with Supplier model)
     try {
       await Supplier.insertMany([
         {
-          supplierCode: "SUP-0001",
+          code: "GPM001",
           name: "Gujarat Paper Mills",
+          companyName: "Gujarat Paper Mills Pvt Ltd",
+          gstin: "24ABCDE1234F1Z5",
+          pan: "ABCDE1234F",
           state: "Gujarat",
-          address: "Ring Road, Surat - 395002",
+          stateCode: "GJ",
+          address: {
+            line1: "Ring Road",
+            line2: "",
+            city: "Surat",
+            pincode: "395002",
+          },
           contactPersons: [
             {
               name: "Ramesh Patel",
+              designation: "Sales Manager",
               phone: "9876543210",
               email: "ramesh@gujaratpaper.com",
               isPrimary: true,
             },
           ],
+          paymentTerms: { creditDays: 30, creditLimit: 1000000 },
+          leadTime: 7,
+          preferredSupplier: true,
           active: true,
         },
         {
-          supplierCode: "SUP-0002",
+          code: "PIT001",
           name: "Premium Imports Trading",
+          companyName: "Premium Imports Trading Co.",
+          gstin: "24ABCDE1234F1Z6",
+          pan: "ABCDE1234F",
           state: "Gujarat",
-          address: "Udhna, Surat - 394210",
+          stateCode: "GJ",
+          address: {
+            line1: "Udhna",
+            line2: "",
+            city: "Surat",
+            pincode: "394210",
+          },
           contactPersons: [
             {
               name: "Suresh Shah",
+              designation: "Owner",
               phone: "9876543211",
               email: "suresh@premiumimports.com",
               isPrimary: true,
             },
           ],
+          paymentTerms: { creditDays: 15, creditLimit: 500000 },
+          leadTime: 10,
+          preferredSupplier: false,
           active: true,
         },
       ]);
@@ -163,23 +241,41 @@ const seedData = async () => {
       }
     }
 
-    // Seed Customers with duplicate handling
+    // Seed Customers with duplicate handling (align with Customer model)
     try {
       await Customer.insertMany([
         {
-          customerCode: "CUST-0001",
           name: "ABC Printers",
+          companyName: "ABC Printers Pvt Ltd",
           state: "Gujarat",
-          address: "Varachha, Surat - 395006",
-          groups: ["Wholesale"],
+          stateCode: "GJ",
+          address: {
+            billing: {
+              line1: "Varachha",
+              line2: "",
+              city: "Surat",
+              pincode: "395006",
+            },
+            shipping: [
+              {
+                label: "Main Warehouse",
+                line1: "Varachha",
+                city: "Surat",
+                pincode: "395006",
+                isDefault: true,
+              },
+            ],
+          },
           contactPersons: [
             {
               name: "Amit Kumar",
-              phones: ["9876543220"],
+              designation: "Owner",
+              phone: "9876543220",
               email: "amit@abcprinters.com",
               isPrimary: true,
             },
           ],
+          group: "Wholesale",
           creditPolicy: {
             creditLimit: 500000,
             creditDays: 30,
@@ -187,23 +283,40 @@ const seedData = async () => {
             autoBlock: true,
             blockRule: "BOTH",
           },
-          baseRate44: 120,
           active: true,
         },
         {
-          customerCode: "CUST-0002",
           name: "XYZ Digital Solutions",
+          companyName: "XYZ Digital Solutions",
           state: "Gujarat",
-          address: "Katargam, Surat - 395004",
-          groups: ["Cash"],
+          stateCode: "GJ",
+          address: {
+            billing: {
+              line1: "Katargam",
+              line2: "",
+              city: "Surat",
+              pincode: "395004",
+            },
+            shipping: [
+              {
+                label: "Office",
+                line1: "Katargam",
+                city: "Surat",
+                pincode: "395004",
+                isDefault: true,
+              },
+            ],
+          },
           contactPersons: [
             {
               name: "Priya Sharma",
-              phones: ["9876543221"],
+              designation: "Manager",
+              phone: "9876543221",
               email: "priya@xyzdigital.com",
               isPrimary: true,
             },
           ],
+          group: "Cash",
           creditPolicy: {
             creditLimit: 0,
             creditDays: 0,
@@ -211,14 +324,42 @@ const seedData = async () => {
             autoBlock: false,
             blockRule: "BOTH",
           },
-          baseRate44: 125,
           active: true,
         },
       ]);
-      console.log("Customers seeded");
+    console.log("Customers seeded");
     } catch (error) {
       if (error.code === 11000) {
         console.log("Customers already exist, skipping...");
+      } else {
+        throw error;
+      }
+    }
+
+    // Seed Customer Rates for each customer-product (for pricing)
+    try {
+      const customerRates = [];
+      const customers = await Customer.find({});
+      for (const customer of customers) {
+        // Set baseRate44 seed per customer group
+        const defaultRate = customer.group === "Wholesale" ? 120 : 125;
+        for (const product of insertedProducts) {
+          customerRates.push({
+            customerId: customer._id,
+            productId: product._id,
+            baseRate44: defaultRate,
+            active: true,
+          });
+        }
+      }
+
+      if (customerRates.length > 0) {
+        await CustomerRate.insertMany(customerRates, { ordered: false });
+        console.log(`${customerRates.length} customer rates seeded`);
+      }
+    } catch (error) {
+      if (error.code === 11000) {
+        console.log("Customer rates already exist, skipping duplicates...");
       } else {
         throw error;
       }

@@ -1,6 +1,8 @@
 // services/productService.js
 const Product = require("../models/Product");
 const Category = require("../models/Category");
+const GSM = require("../models/GSM");
+const Quality = require("../models/Quality");
 const AppError = require("../utils/AppError");
 
 class ProductService {
@@ -11,11 +13,27 @@ class ProductService {
       throw new AppError("Category not found", 404);
     }
 
+    // Verify GSM exists if gsmId provided
+    if (data.gsmId) {
+      const gsm = await GSM.findById(data.gsmId);
+      if (!gsm) {
+        throw new AppError("GSM not found", 404);
+      }
+    }
+
+    // Verify Quality exists if qualityId provided
+    if (data.qualityId) {
+      const quality = await Quality.findById(data.qualityId);
+      if (!quality) {
+        throw new AppError("Quality not found", 404);
+      }
+    }
+
     // Check for duplicate product
     const existingProduct = await Product.findOne({
       categoryId: data.categoryId,
-      gsm: data.gsm,
-      qualityName: data.qualityName,
+      gsmId: data.gsmId,
+      qualityId: data.qualityId,
     });
 
     if (existingProduct) {
@@ -28,7 +46,7 @@ class ProductService {
     }
 
     const product = await Product.create(data);
-    return product.populate("category");
+    return product.populate(["category", "gsm", "quality"]);
   }
 
   async getAllProducts(filters = {}, pagination = {}) {
@@ -39,12 +57,38 @@ class ProductService {
       query.categoryId = filters.categoryId;
     }
 
+    // If gsm filter is provided as name, find the GSM ID
     if (filters.gsm) {
-      query.gsm = filters.gsm;
+      // Check if it's an ObjectId or a name
+      if (filters.gsm.match(/^[0-9a-fA-F]{24}$/)) {
+        query.gsmId = filters.gsm;
+      } else {
+        // It's a name, find the GSM by name
+        const gsm = await GSM.findOne({ name: filters.gsm });
+        if (gsm) {
+          query.gsmId = gsm._id;
+        } else {
+          // No matching GSM, return empty results
+          query.gsmId = null;
+        }
+      }
     }
 
+    // If qualityName filter is provided, find the Quality ID
     if (filters.qualityName) {
-      query.qualityName = filters.qualityName;
+      // Check if it's an ObjectId or a name
+      if (filters.qualityName.match(/^[0-9a-fA-F]{24}$/)) {
+        query.qualityId = filters.qualityName;
+      } else {
+        // It's a name, find the Quality by name
+        const quality = await Quality.findOne({ name: filters.qualityName });
+        if (quality) {
+          query.qualityId = quality._id;
+        } else {
+          // No matching Quality, return empty results
+          query.qualityId = null;
+        }
+      }
     }
 
     if (filters.active !== undefined) {
@@ -59,7 +103,9 @@ class ProductService {
     const [products, total] = await Promise.all([
       Product.find(query)
         .populate("category")
-        .sort({ categoryId: 1, gsm: 1, qualityName: 1 })
+        .populate("gsm")
+        .populate("quality")
+        .sort({ categoryId: 1, gsmId: 1, qualityId: 1 })
         .skip(skip)
         .limit(limit),
       Product.countDocuments(query),
@@ -77,7 +123,10 @@ class ProductService {
   }
 
   async getProductById(id) {
-    const product = await Product.findById(id).populate("category");
+    const product = await Product.findById(id)
+      .populate("category")
+      .populate("gsm")
+      .populate("quality");
 
     if (!product) {
       throw new AppError("Product not found", 404);
@@ -87,16 +136,19 @@ class ProductService {
   }
 
   async updateProduct(id, updateData) {
-    // Don't allow changing category, gsm, or quality (would be a different product)
+    // Don't allow changing category, gsmId, or qualityId (would be a different product)
     delete updateData.categoryId;
-    delete updateData.gsm;
-    delete updateData.qualityName;
+    delete updateData.gsmId;
+    delete updateData.qualityId;
     delete updateData.productCode;
 
     const product = await Product.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
-    }).populate("category");
+    })
+      .populate("category")
+      .populate("gsm")
+      .populate("quality");
 
     if (!product) {
       throw new AppError("Product not found", 404);
@@ -115,7 +167,7 @@ class ProductService {
     product.active = !product.active;
     await product.save();
 
-    return product.populate("category");
+    return product.populate(["category", "gsm", "quality"]);
   }
 
   async deleteProduct(id) {
@@ -137,11 +189,25 @@ class ProductService {
   }
 
   async getProductsByCategoryAndGSM(categoryId, gsm) {
+    // Find GSM by name if gsm is provided as a string
+    let gsmId = gsm;
+    if (gsm && !gsm.match(/^[0-9a-fA-F]{24}$/)) {
+      // It's a name, not an ObjectId
+      const gsmRecord = await GSM.findOne({ name: gsm });
+      if (!gsmRecord) {
+        return []; // No matching GSM
+      }
+      gsmId = gsmRecord._id;
+    }
+
     const products = await Product.find({
       categoryId,
-      gsm,
+      gsmId,
       active: true,
-    }).populate("category");
+    })
+      .populate("category")
+      .populate("gsm")
+      .populate("quality");
 
     return products;
   }

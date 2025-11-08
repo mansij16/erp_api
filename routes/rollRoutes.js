@@ -1,17 +1,24 @@
 const express = require("express");
 const router = express.Router();
-const { handleAsyncErrors, AppError } = require("../utils/errorHandler");
+const rollController = require("../controllers/rollController");
+// const { authenticate, authorize } = require("../middlewares/auth");
 
-// Placeholder controller - will be implemented later
-const getRolls = handleAsyncErrors(async (req, res) => {
-  res.json({
-    success: true,
-    data: [],
-    message: "Roll module - implementation pending",
-  });
-});
+// router.use(authenticate);
 
-router.route("/")
-  .get(getRolls);
+// Public routes
+router.get("/", rollController.getAllRolls);
+router.get("/summary", rollController.getInventorySummary);
+router.get("/unmapped", rollController.getUnmappedRolls);
+router.get("/barcode/:barcode", rollController.getRollByBarcode);
+
+// Warehouse staff routes
+// router.use(authorize(["admin", "warehouse_staff", "inventory_manager"]));
+
+router.post("/map", rollController.mapUnmappedRolls);
+router.post("/allocate", rollController.allocateRolls);
+router.post("/deallocate", rollController.deallocateRolls);
+router.post("/dispatch", rollController.dispatchRolls);
+router.post("/return", rollController.handleReturn);
+router.patch("/:id/scrap", rollController.markAsScrap);
 
 module.exports = router;

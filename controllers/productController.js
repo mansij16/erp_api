@@ -15,7 +15,7 @@ class ProductController {
   getAllProducts = catchAsync(async (req, res) => {
     const filters = {
       categoryId: req.query.categoryId,
-      gsm: req.query.gsm ? parseInt(req.query.gsm) : undefined,
+      gsm: req.query.gsm ? req.query.gsm : undefined,
       qualityName: req.query.qualityName,
       active:
         req.query.active === "true"
@@ -82,7 +82,7 @@ class ProductController {
     const { categoryId, gsm } = req.params;
     const products = await productService.getProductsByCategoryAndGSM(
       categoryId,
-      parseInt(gsm)
+      gsm
     );
 
     res.status(200).json({

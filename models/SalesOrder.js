@@ -8,7 +8,7 @@ const salesOrderLineSchema = new mongoose.Schema({
     required: true,
   },
   categoryName: String,
-  gsm: Number,
+  gsm: String,
   qualityName: String,
   widthInches: Number,
   lengthMetersPerRoll: Number,

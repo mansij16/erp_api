@@ -162,6 +162,20 @@ const unblockCustomer = handleAsyncErrors(async (req, res) => {
   });
 });
 
+// Delete customer
+const deleteCustomer = handleAsyncErrors(async (req, res) => {
+  const customer = await Customer.findByIdAndDelete(req.params.id);
+
+  if (!customer) {
+    throw new AppError("Customer not found", 404, "RESOURCE_NOT_FOUND");
+  }
+
+  res.json({
+    success: true,
+    message: "Customer deleted successfully",
+  });
+});
+
 module.exports = {
   getCustomers,
   getCustomer,
@@ -170,4 +184,5 @@ module.exports = {
   checkCredit,
   blockCustomer,
   unblockCustomer,
+  deleteCustomer,
 };
