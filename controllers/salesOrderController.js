@@ -19,7 +19,11 @@ const getSalesOrders = handleAsyncErrors(async (req, res) => {
   }
 
   const salesOrders = await SalesOrder.find(filter)
-    .populate("customerId", "name customerCode customerGroup")
+    .populate({
+      path: "customerId",
+      select: "name customerCode",
+      populate: { path: "customerGroupId", select: "name code" },
+    })
     .sort({ createdAt: -1 });
 
   res.json({
@@ -32,7 +36,11 @@ const getSalesOrders = handleAsyncErrors(async (req, res) => {
 // Get single sales order
 const getSalesOrder = handleAsyncErrors(async (req, res) => {
   const salesOrder = await SalesOrder.findById(req.params.id)
-    .populate("customerId", "name customerCode customerGroup creditPolicy baseRate44")
+    .populate({
+      path: "customerId",
+      select: "name customerCode creditPolicy baseRate44",
+      populate: { path: "customerGroupId", select: "name code" },
+    })
     .populate("lines.skuId", "skuCode categoryName gsm qualityName widthInches");
 
   if (!salesOrder) {
@@ -55,7 +63,7 @@ const createSalesOrder = handleAsyncErrors(async (req, res) => {
     throw new AppError("Customer not found", 404, "RESOURCE_NOT_FOUND");
   }
 
-  if (customer.isBlocked) {
+  if (customer.creditPolicy?.isBlocked) {
     throw new AppError("Customer is blocked", 400, "CUSTOMER_BLOCKED");
   }
 
@@ -106,11 +114,20 @@ const createSalesOrder = handleAsyncErrors(async (req, res) => {
     });
   }
 
+  // Populate customerGroupId if it exists
+  const customerWithGroup = await Customer.findById(customerId).populate(
+    "customerGroupId",
+    "name code"
+  );
+
   const salesOrder = await SalesOrder.create({
     soNumber,
     customerId,
     customerName: customer.name,
-    customerGroup: customer.groups,
+    customerGroup:
+      customerWithGroup.customerGroupId?.name ||
+      customerWithGroup.group ||
+      null,
     lines: processedLines,
     subtotal,
     taxAmount,
@@ -121,7 +138,11 @@ const createSalesOrder = handleAsyncErrors(async (req, res) => {
   });
 
   const populatedOrder = await SalesOrder.findById(salesOrder._id)
-    .populate("customerId", "name customerCode customerGroup")
+    .populate({
+      path: "customerId",
+      select: "name customerCode",
+      populate: { path: "customerGroupId", select: "name code" },
+    })
     .populate("lines.skuId", "skuCode categoryName gsm qualityName widthInches");
 
   res.status(201).json({

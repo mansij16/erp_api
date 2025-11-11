@@ -40,7 +40,7 @@ class SupplierService {
       query.$or = [
         { name: { $regex: filters.search, $options: "i" } },
         { companyName: { $regex: filters.search, $options: "i" } },
-        { code: { $regex: filters.search, $options: "i" } },
+        { supplierCode: { $regex: filters.search, $options: "i" } },
         { gstin: { $regex: filters.search, $options: "i" } },
       ];
     }
@@ -83,7 +83,7 @@ class SupplierService {
   }
 
   async getSupplierByCode(code) {
-    const supplier = await Supplier.findOne({ code: code.toUpperCase() })
+    const supplier = await Supplier.findOne({ supplierCode: code.toUpperCase() })
       .populate("categories")
       .populate("products");
 
@@ -95,9 +95,9 @@ class SupplierService {
   }
 
   async updateSupplier(id, updateData) {
-    // Don't allow changing GSTIN
+    // Don't allow changing GSTIN or supplierCode
     delete updateData.gstin;
-    delete updateData.code;
+    delete updateData.supplierCode;
 
     // Handle contact persons update
     if (updateData.contactPersons) {

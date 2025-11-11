@@ -95,7 +95,7 @@ class CustomerService {
   async updateCustomer(id, updateData) {
     // Don't allow changing GSTIN or code
     delete updateData.gstin;
-    delete updateData.code;
+    delete updateData.customerCode;
 
     const customer = await Customer.findByIdAndUpdate(id, updateData, {
       new: true,
@@ -369,7 +369,7 @@ class CustomerService {
     // This would integrate with WhatsApp service
     // For now, just log
     console.log(
-      `WhatsApp message queued for ${customer.code}: ${templateType}`,
+      `WhatsApp message queued for ${customer.customerCode}: ${templateType}`,
       data
     );
   }

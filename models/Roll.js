@@ -164,7 +164,7 @@ rollSchema.pre("save", async function (next) {
 
     // Get supplier code
     const supplier = await mongoose.model("Supplier").findById(this.supplierId);
-    const supCode = supplier.code.substring(0, 3);
+    const supCode = supplier.supplierCode.substring(0, 3);
 
     // Get batch code
     const batch = await mongoose.model("Batch").findById(this.batchId);

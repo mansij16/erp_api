@@ -6,6 +6,7 @@ const Quality = require("../models/Quality");
 const Product = require("../models/Product");
 const SKU = require("../models/SKU");
 const Supplier = require("../models/Supplier");
+const CustomerGroup = require("../models/CustomerGroup");
 const Customer = require("../models/Customer");
 const CustomerRate = require("../models/CustomerRate");
 const Ledger = require("../models/Ledger");
@@ -49,9 +50,10 @@ const seedData = async () => {
       await Product.deleteMany({});
       await SKU.deleteMany({});
       await Supplier.deleteMany({});
-      await Customer.deleteMany({});
-      await Ledger.deleteMany({});
       await CustomerRate.deleteMany({});
+      await Customer.deleteMany({});
+      await CustomerGroup.deleteMany({});
+      await Ledger.deleteMany({});
       console.log("Existing data cleared");
     } catch (error) {
       console.log("Error clearing data (may not exist yet):", error.message);
@@ -92,15 +94,30 @@ const seedData = async () => {
     // Seed Products (align with Product model)
     const products = [];
     for (const category of categories) {
-      for (const gsmName of ["30 GSM", "35 GSM", "45 GSM", "55 GSM", "65 GSM", "80 GSM"]) {
+      for (const gsmName of [
+        "30 GSM",
+        "35 GSM",
+        "45 GSM",
+        "55 GSM",
+        "65 GSM",
+        "80 GSM",
+      ]) {
         for (const qualityName of ["Premium", "Standard", "Economy"]) {
           const gsmId = gsmMap.get(gsmName);
           const qualityId = qualityMap.get(qualityName);
-          
+
           if (!gsmId || !qualityId) {
-            console.error(`Missing GSM or Quality for ${gsmName} / ${qualityName}`);
+            console.error(
+              `Missing GSM or Quality for ${gsmName} / ${qualityName}`
+            );
             continue;
           }
+
+          // Generate productAlias: gsm.name + category.name (e.g., "30 GSM Sublimation")
+          const productAlias = `${gsmName} ${category.name}`;
+
+          // Generate productCode: gsm.name + quality.name + category.name (e.g., "30 GSMPremiumSublimation")
+          const productCode = `${gsmName}${qualityName}${category.name}`;
 
           products.push({
             categoryId: category._id,
@@ -109,6 +126,8 @@ const seedData = async () => {
             hsnCode: category.hsnCode,
             taxRate: 18,
             defaultLengthMeters: 1000, // Required field: enum [1000, 1500, 2000]
+            productAlias: productAlias,
+            productCode: productCode,
             active: true,
           });
         }
@@ -119,29 +138,28 @@ const seedData = async () => {
     console.log("Products seeded");
 
     // Seed SKUs
-    // Prepare category map for SKU code generation
-    const categoryMap = new Map(categories.map((c) => [String(c._id), c]));
-
-    // Populate products with GSM and Quality for SKU code generation
-    const populatedProducts = await Product.find({ _id: { $in: insertedProducts.map(p => p._id) } })
+    // Populate products with GSM, Quality, and Category for SKU code generation
+    const populatedProducts = await Product.find({
+      _id: { $in: insertedProducts.map((p) => p._id) },
+    })
       .populate("gsmId")
       .populate("qualityId")
       .populate("categoryId");
 
     const skus = [];
     for (const product of populatedProducts) {
-      const cat = categoryMap.get(String(product.categoryId));
-      const catCode = cat?.code || "CAT";
+      // Since categoryId is populated, access code directly
+      const catCode = product.categoryId?.code || "CAT";
       const gsmName = product.gsmId?.name || "";
       const qualityName = product.qualityId?.name || "";
       const quality = qualityName.substring(0, 4).toUpperCase();
-      
+
       for (const width of [24, 36, 44, 63]) {
         skus.push({
           productId: product._id,
           widthInches: width,
           taxRate: 18,
-          skuCode: `${catCode}-${gsmName}-${quality}-${width}-${product.defaultLengthMeters}`,
+          skuCode: `${width}-${product.productCode}`,
           active: true,
         });
       }
@@ -168,6 +186,40 @@ const seedData = async () => {
         }
       } else {
         console.error("Unexpected error inserting SKUs:", error.message);
+        throw error;
+      }
+    }
+
+    // Seed Customer Groups (align with CustomerGroup model)
+    let customerGroupMap = new Map();
+    try {
+      const customerGroups = await CustomerGroup.insertMany([
+        {
+          name: "Cash",
+          code: "CSH",
+          description: "Cash customers - payment on delivery",
+          active: true,
+        },
+        {
+          name: "Large",
+          code: "LGE",
+          description: "Large customers with special terms",
+          active: true,
+        },
+      ]);
+      console.log("Customer groups seeded");
+
+      // Create customer group map for easy lookup
+      customerGroupMap = new Map(customerGroups.map((cg) => [cg.name, cg._id]));
+    } catch (error) {
+      if (error.code === 11000) {
+        console.log("Customer groups already exist, fetching existing...");
+        // Fetch existing customer groups
+        const existingGroups = await CustomerGroup.find({});
+        customerGroupMap = new Map(
+          existingGroups.map((cg) => [cg.name, cg._id])
+        );
+      } else {
         throw error;
       }
     }
@@ -243,6 +295,15 @@ const seedData = async () => {
 
     // Seed Customers with duplicate handling (align with Customer model)
     try {
+      const wholesaleGroupId = customerGroupMap.get("Wholesale");
+      const cashGroupId = customerGroupMap.get("Cash");
+
+      if (!wholesaleGroupId || !cashGroupId) {
+        throw new Error(
+          "Customer groups not found. Please seed customer groups first."
+        );
+      }
+
       await Customer.insertMany([
         {
           name: "ABC Printers",
@@ -275,7 +336,7 @@ const seedData = async () => {
               isPrimary: true,
             },
           ],
-          group: "Wholesale",
+          customerGroupId: wholesaleGroupId,
           creditPolicy: {
             creditLimit: 500000,
             creditDays: 30,
@@ -316,7 +377,7 @@ const seedData = async () => {
               isPrimary: true,
             },
           ],
-          group: "Cash",
+          customerGroupId: cashGroupId,
           creditPolicy: {
             creditLimit: 0,
             creditDays: 0,
@@ -327,7 +388,7 @@ const seedData = async () => {
           active: true,
         },
       ]);
-    console.log("Customers seeded");
+      console.log("Customers seeded");
     } catch (error) {
       if (error.code === 11000) {
         console.log("Customers already exist, skipping...");
@@ -339,10 +400,12 @@ const seedData = async () => {
     // Seed Customer Rates for each customer-product (for pricing)
     try {
       const customerRates = [];
-      const customers = await Customer.find({});
+      const customers = await Customer.find({}).populate("customerGroupId");
       for (const customer of customers) {
         // Set baseRate44 seed per customer group
-        const defaultRate = customer.group === "Wholesale" ? 120 : 125;
+        // Wholesale group gets 120, others get 125
+        const customerGroupName = customer.customerGroupId?.name || "";
+        const defaultRate = customerGroupName === "Wholesale" ? 120 : 125;
         for (const product of insertedProducts) {
           customerRates.push({
             customerId: customer._id,

@@ -2,9 +2,8 @@ const mongoose = require("mongoose");
 
 const supplierSchema = new mongoose.Schema(
   {
-    code: {
+    supplierCode: {
       type: String,
-      required: true,
       unique: true,
       uppercase: true,
     },
@@ -111,24 +110,26 @@ const supplierSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   }
 );
 
 // Indexes
-supplierSchema.index({ code: 1 });
+supplierSchema.index({ supplierCode: 1 });
 supplierSchema.index({ gstin: 1 });
 supplierSchema.index({ active: 1 });
 supplierSchema.index({ preferredSupplier: 1 });
 
 // Generate supplier code
 supplierSchema.pre("save", async function (next) {
-  if (!this.code && this.isNew) {
+  if (!this.supplierCode && this.isNew) {
     // Generate code from company name first 3 letters + sequence
     const prefix = this.companyName.substring(0, 3).toUpperCase();
     const count = await this.constructor.countDocuments({
-      code: new RegExp(`^${prefix}`),
+      supplierCode: new RegExp(`^${prefix}`),
     });
-    this.code = `${prefix}${(count + 1).toString().padStart(3, "0")}`;
+    this.supplierCode = `${prefix}${(count + 1).toString().padStart(3, "0")}`;
   }
   next();
 });

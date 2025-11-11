@@ -15,6 +15,7 @@ const skuRoutes = require("./routes/skuRoutes");
 const supplierRoutes = require("./routes/supplierRoutes");
 const rollRoutes = require("./routes/rollRoutes");
 const customerRoutes = require("./routes/customerRoutes");
+const customerGroupRoutes = require("./routes/customerGroupRoutes");
 const pricingRoutes = require("./routes/pricingRoutes");
 
 // Import error handler
@@ -45,6 +46,7 @@ app.use("/api/v1/skus", skuRoutes);
 app.use("/api/v1/suppliers", supplierRoutes);
 app.use("/api/v1/rolls", rollRoutes);
 app.use("/api/v1/customers", customerRoutes);
+app.use("/api/v1/customer-groups", customerGroupRoutes);
 app.use("/api/v1/pricing", pricingRoutes);
 
 // Health check

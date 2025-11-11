@@ -24,7 +24,6 @@ const rateHistorySchema = new mongoose.Schema(
       required: true,
     },
     appliedWidth: Number,
-    appliedRate: Number, // Actual rate after width calculation
     isOverride: {
       type: Boolean,
       default: false,
@@ -42,6 +41,8 @@ const rateHistorySchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   }
 );
 

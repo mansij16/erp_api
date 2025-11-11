@@ -46,7 +46,10 @@ class ProductService {
     }
 
     const product = await Product.create(data);
-    return product.populate(["category", "gsm", "quality"]);
+    return await Product.findById(product._id)
+      .populate("categoryId", "name code hsnCode")
+      .populate("gsmId", "name value")
+      .populate("qualityId", "name");
   }
 
   async getAllProducts(filters = {}, pagination = {}) {
@@ -102,9 +105,9 @@ class ProductService {
 
     const [products, total] = await Promise.all([
       Product.find(query)
-        .populate("category")
-        .populate("gsm")
-        .populate("quality")
+        .populate("categoryId", "name code hsnCode")
+        .populate("gsmId", "name value")
+        .populate("qualityId", "name")
         .sort({ categoryId: 1, gsmId: 1, qualityId: 1 })
         .skip(skip)
         .limit(limit),
@@ -124,9 +127,9 @@ class ProductService {
 
   async getProductById(id) {
     const product = await Product.findById(id)
-      .populate("category")
-      .populate("gsm")
-      .populate("quality");
+      .populate("categoryId", "name code hsnCode")
+      .populate("gsmId", "name value")
+      .populate("qualityId", "name");
 
     if (!product) {
       throw new AppError("Product not found", 404);
@@ -146,9 +149,9 @@ class ProductService {
       new: true,
       runValidators: true,
     })
-      .populate("category")
-      .populate("gsm")
-      .populate("quality");
+      .populate("categoryId", "name code hsnCode")
+      .populate("gsmId", "name value")
+      .populate("qualityId", "name");
 
     if (!product) {
       throw new AppError("Product not found", 404);
@@ -167,7 +170,10 @@ class ProductService {
     product.active = !product.active;
     await product.save();
 
-    return product.populate(["category", "gsm", "quality"]);
+    return await Product.findById(product._id)
+      .populate("categoryId", "name code hsnCode")
+      .populate("gsmId", "name value")
+      .populate("qualityId", "name");
   }
 
   async deleteProduct(id) {
@@ -205,9 +211,9 @@ class ProductService {
       gsmId,
       active: true,
     })
-      .populate("category")
-      .populate("gsm")
-      .populate("quality");
+      .populate("categoryId", "name code hsnCode")
+      .populate("gsmId", "name value")
+      .populate("qualityId", "name");
 
     return products;
   }

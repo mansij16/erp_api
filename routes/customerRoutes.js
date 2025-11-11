@@ -9,6 +9,7 @@ const customerController = require("../controllers/customerController");
 router.get("/", customerController.getCustomers);
 router.get("/:id", customerController.getCustomer);
 router.get("/:id/credit-check", customerController.checkCredit);
+router.get("/:id/rate-history", customerController.getRateHistory);
 
 // Sales team routes
 // router.use(authorize(["admin", "sales_manager", "sales_exec"]));

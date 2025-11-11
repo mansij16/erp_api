@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 
 const customerSchema = new mongoose.Schema(
   {
-    code: {
+    customerCode: {
       type: String,
       unique: true,
       uppercase: true,
@@ -65,10 +65,10 @@ const customerSchema = new mongoose.Schema(
         isPrimary: { type: Boolean, default: false },
       },
     ],
-    group: {
-      type: String,
-      enum: ["Cash", "Wholesale", "Big", "Regular"],
-      default: "Regular",
+    customerGroupId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CustomerGroup",
+      required: [true, "Customer group is required"],
     },
     referral: {
       source: String,
@@ -163,36 +163,54 @@ const customerSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   }
 );
 
 // Indexes
-customerSchema.index({ code: 1 });
+customerSchema.index({ customerCode: 1 });
 customerSchema.index({ gstin: 1 });
-customerSchema.index({ group: 1 });
+customerSchema.index({ customerGroupId: 1 });
 customerSchema.index({ active: 1 });
 customerSchema.index({ "creditPolicy.isBlocked": 1 });
 customerSchema.index({ name: "text", companyName: "text" });
 
 // Generate customer code
 customerSchema.pre("save", async function (next) {
-  if (!this.code && this.isNew) {
-    const prefix =
-      this.group === "Cash"
-        ? "CSH"
-        : this.group === "Wholesale"
-        ? "WHL"
-        : this.group === "Big"
-        ? "BIG"
-        : "REG";
+  if (!this.customerCode && this.isNew && this.customerGroupId) {
+    try {
+      const CustomerGroup = mongoose.model("CustomerGroup");
+      
+      // Fetch customer group to get the code for prefix
+      const customerGroup = await CustomerGroup.findById(this.customerGroupId);
+      
+      if (!customerGroup || !customerGroup.code) {
+        return next(new Error("Customer group not found or invalid"));
+      }
+      
+      // Use the code from CustomerGroup as prefix (e.g., "CSH", "WHL", "BIG", "REG")
+      const prefix = customerGroup.code;
 
-    const count = await this.constructor.countDocuments({
-      group: this.group,
-    });
+      // Count customers with the same customerGroupId
+      const count = await this.constructor.countDocuments({
+        customerGroupId: this.customerGroupId,
+      });
 
-    this.code = `${prefix}${(count + 1).toString().padStart(5, "0")}`;
+      this.customerCode = `${prefix}${(count + 1).toString().padStart(5, "0")}`;
+    } catch (error) {
+      return next(error);
+    }
   }
   next();
+});
+
+// Virtual to populate customerGroup via customerGroupId
+customerSchema.virtual("customerGroup", {
+  ref: "CustomerGroup",
+  localField: "customerGroupId",
+  foreignField: "_id",
+  justOne: true,
 });
 
 // Virtual for outstanding amount
