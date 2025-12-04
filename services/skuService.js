@@ -127,6 +127,7 @@ class SKUService {
     delete updateData.productId;
     delete updateData.widthInches;
     delete updateData.skuCode;
+    delete updateData.skuAlias;
 
     const sku = await SKU.findByIdAndUpdate(id, updateData, {
       new: true,

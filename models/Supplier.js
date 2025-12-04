@@ -33,11 +33,6 @@ const supplierSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    stateCode: {
-      type: String,
-      required: true,
-      length: 2,
-    },
     address: {
       line1: { type: String, required: true },
       line2: String,

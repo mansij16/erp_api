@@ -10,6 +10,7 @@ const CustomerGroup = require("../models/CustomerGroup");
 const Customer = require("../models/Customer");
 const CustomerRate = require("../models/CustomerRate");
 const Ledger = require("../models/Ledger");
+const Agent = require("../models/Agent");
 
 dotenv.config();
 
@@ -53,6 +54,7 @@ const seedData = async () => {
       await CustomerRate.deleteMany({});
       await Customer.deleteMany({});
       await CustomerGroup.deleteMany({});
+      await Agent.deleteMany({});
       await Ledger.deleteMany({});
       console.log("Existing data cleared");
     } catch (error) {
@@ -117,7 +119,7 @@ const seedData = async () => {
           const productAlias = `${gsmName} ${category.name}`;
 
           // Generate productCode: gsm.name + quality.name + category.name (e.g., "30 GSMPremiumSublimation")
-          const productCode = `${gsmName}${qualityName}${category.name}`;
+          const productCode = `${gsmName} ${qualityName} ${category.name}`;
 
           products.push({
             categoryId: category._id,
@@ -148,18 +150,14 @@ const seedData = async () => {
 
     const skus = [];
     for (const product of populatedProducts) {
-      // Since categoryId is populated, access code directly
-      const catCode = product.categoryId?.code || "CAT";
-      const gsmName = product.gsmId?.name || "";
-      const qualityName = product.qualityId?.name || "";
-      const quality = qualityName.substring(0, 4).toUpperCase();
-
-      for (const width of [24, 36, 44, 63]) {
+      const widths = [24, 36, 44, 63];
+      for (const width of widths) {
         skus.push({
           productId: product._id,
           widthInches: width,
           taxRate: 18,
           skuCode: `${width}-${product.productCode}`,
+          skuAlias: `${width}-${product.productAlias}`,
           active: true,
         });
       }
@@ -192,21 +190,31 @@ const seedData = async () => {
 
     // Seed Customer Groups (align with CustomerGroup model)
     let customerGroupMap = new Map();
+    const customerGroupSeedData = [
+      {
+        name: "Cash",
+        code: "CSH",
+        description: "Cash customers - payment on delivery",
+        active: true,
+      },
+      {
+        name: "Large",
+        code: "LGE",
+        description: "Large customers with special terms",
+        active: true,
+      },
+      {
+        name: "Wholesale",
+        code: "WHL",
+        description: "Wholesale customers with negotiated rates",
+        active: true,
+      },
+    ];
     try {
-      const customerGroups = await CustomerGroup.insertMany([
-        {
-          name: "Cash",
-          code: "CSH",
-          description: "Cash customers - payment on delivery",
-          active: true,
-        },
-        {
-          name: "Large",
-          code: "LGE",
-          description: "Large customers with special terms",
-          active: true,
-        },
-      ]);
+      const customerGroups = await CustomerGroup.insertMany(
+        customerGroupSeedData,
+        { ordered: false }
+      );
       console.log("Customer groups seeded");
 
       // Create customer group map for easy lookup
@@ -224,6 +232,23 @@ const seedData = async () => {
       }
     }
 
+    // Ensure required customer groups exist even if they were pre-existing
+    if (customerGroupMap.size === 0) {
+      const existingGroups = await CustomerGroup.find({});
+      customerGroupMap = new Map(existingGroups.map((cg) => [cg.name, cg._id]));
+    }
+
+    for (const groupSeed of customerGroupSeedData) {
+      if (!customerGroupMap.has(groupSeed.name)) {
+        const createdGroup = await CustomerGroup.findOneAndUpdate(
+          { code: groupSeed.code },
+          groupSeed,
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+        customerGroupMap.set(createdGroup.name, createdGroup._id);
+      }
+    }
+
     // Seed Suppliers with duplicate handling (align with Supplier model)
     try {
       await Supplier.insertMany([
@@ -234,7 +259,6 @@ const seedData = async () => {
           gstin: "24ABCDE1234F1Z5",
           pan: "ABCDE1234F",
           state: "Gujarat",
-          stateCode: "GJ",
           address: {
             line1: "Ring Road",
             line2: "",
@@ -262,7 +286,6 @@ const seedData = async () => {
           gstin: "24ABCDE1234F1Z6",
           pan: "ABCDE1234F",
           state: "Gujarat",
-          stateCode: "GJ",
           address: {
             line1: "Udhna",
             line2: "",
@@ -304,12 +327,11 @@ const seedData = async () => {
         );
       }
 
-      await Customer.insertMany([
+      const insertedCustomers = await Customer.insertMany([
         {
           name: "ABC Printers",
           companyName: "ABC Printers Pvt Ltd",
           state: "Gujarat",
-          stateCode: "GJ",
           address: {
             billing: {
               line1: "Varachha",
@@ -350,7 +372,6 @@ const seedData = async () => {
           name: "XYZ Digital Solutions",
           companyName: "XYZ Digital Solutions",
           state: "Gujarat",
-          stateCode: "GJ",
           address: {
             billing: {
               line1: "Katargam",
@@ -389,6 +410,197 @@ const seedData = async () => {
         },
       ]);
       console.log("Customers seeded");
+
+      try {
+        if (insertedCustomers.length > 0) {
+          const [abcCustomer, xyzCustomer] = insertedCustomers;
+
+          const currentDate = new Date();
+          const lastMonthStart = new Date(
+            currentDate.getFullYear(),
+            currentDate.getMonth() - 1,
+            1
+          );
+          const lastMonthEnd = new Date(
+            currentDate.getFullYear(),
+            currentDate.getMonth(),
+            0
+          );
+
+          await Agent.insertMany([
+            {
+              name: "Prime Sales Agency",
+              state: "Gujarat",
+              address: {
+                line1: "201, Prime Plaza",
+                line2: "Ring Road",
+                city: "Surat",
+                pincode: "395002",
+              },
+              phone: "9876500001",
+              whatsapp: "9876500001",
+              contactPersonName: "Rahul Desai",
+              contactPersonPhone: "9876500002",
+              contactPersonEmail: "rahul.desai@primesales.in",
+              targetSalesMeters: 50000,
+              defaultRate: 118,
+              defaultCreditLimit: 400000,
+              defaultCreditDays: 30,
+              customers: [abcCustomer._id],
+              notes: "Handles major export-oriented accounts",
+              kycDocuments: [
+                {
+                  documentType: "pan",
+                  fileName: "prime-pan.pdf",
+                  fileUrl:
+                    "https://storage.example.com/kyc/prime_sales/prime-pan.pdf",
+                  notes: "PAN verification document",
+                },
+              ],
+              partyCommissions: [
+                {
+                  customer: abcCustomer._id,
+                  commissionType: "per_meter",
+                  amountPerMeter: 2.5,
+                  applyByDefault: true,
+                  history: [
+                    {
+                      commissionType: "per_meter",
+                      amountPerMeter: 2.5,
+                      effectiveFrom: new Date(
+                        currentDate.getFullYear(),
+                        currentDate.getMonth() - 2,
+                        1
+                      ),
+                      notes: "Initial commission setup",
+                    },
+                  ],
+                },
+              ],
+              commissionChanges: [
+                {
+                  customer: abcCustomer._id,
+                  newCommissionType: "per_meter",
+                  newAmountPerMeter: 2.5,
+                  changeDate: new Date(
+                    currentDate.getFullYear(),
+                    currentDate.getMonth() - 2,
+                    1
+                  ),
+                  notes: "Commission plan initiated",
+                },
+              ],
+              commissionPayouts: [
+                {
+                  customer: abcCustomer._id,
+                  reference: "FY24-Q4",
+                  periodStart: lastMonthStart,
+                  periodEnd: lastMonthEnd,
+                  amount: 25000,
+                  payoutStatus: "paid",
+                  paidOn: currentDate,
+                  paymentReference: "UTR123456789",
+                  notes: "Quarterly commission settlement",
+                },
+              ],
+            },
+            {
+              name: "Galaxy Brokerage",
+              state: "Maharashtra",
+              address: {
+                line1: "804, Galaxy Heights",
+                line2: "Andheri East",
+                city: "Mumbai",
+                pincode: "400069",
+              },
+              phone: "9876501001",
+              whatsapp: "9876501001",
+              contactPersonName: "Sejal Shah",
+              contactPersonPhone: "9876501005",
+              contactPersonEmail: "sejal.shah@galaxybrokerage.in",
+              targetSalesMeters: 35000,
+              defaultRate: 120,
+              defaultCreditLimit: 250000,
+              defaultCreditDays: 20,
+              blockNewSalesForAllParties: false,
+              blockNewDeliveriesForAllParties: false,
+              blockedSalesCustomers: xyzCustomer ? [xyzCustomer._id] : [],
+              customers: xyzCustomer ? [xyzCustomer._id] : [],
+              kycDocuments: [
+                {
+                  documentType: "aadhaar",
+                  fileName: "galaxy-aadhaar.pdf",
+                  fileUrl:
+                    "https://storage.example.com/kyc/galaxy/galaxy-aadhaar.pdf",
+                },
+                {
+                  documentType: "pan",
+                  fileName: "galaxy-pan.pdf",
+                  fileUrl:
+                    "https://storage.example.com/kyc/galaxy/galaxy-pan.pdf",
+                },
+              ],
+              partyCommissions: xyzCustomer
+                ? [
+                    {
+                      customer: xyzCustomer._id,
+                      commissionType: "percentage",
+                      percentage: 1.75,
+                      applyByDefault: true,
+                      history: [
+                        {
+                          commissionType: "percentage",
+                          percentage: 1.75,
+                          effectiveFrom: new Date(
+                            currentDate.getFullYear(),
+                            currentDate.getMonth() - 1,
+                            15
+                          ),
+                          notes: "Introductory commission",
+                        },
+                      ],
+                    },
+                  ]
+                : [],
+              commissionChanges: xyzCustomer
+                ? [
+                    {
+                      customer: xyzCustomer._id,
+                      newCommissionType: "percentage",
+                      newPercentage: 1.75,
+                      changeDate: new Date(
+                        currentDate.getFullYear(),
+                        currentDate.getMonth() - 1,
+                        15
+                      ),
+                      notes: "Initial commission setup",
+                    },
+                  ]
+                : [],
+              commissionPayouts: xyzCustomer
+                ? [
+                    {
+                      customer: xyzCustomer._id,
+                      reference: "APR-2025",
+                      periodStart: lastMonthStart,
+                      periodEnd: lastMonthEnd,
+                      amount: 15000,
+                      payoutStatus: "pending",
+                      notes: "Pending verification from accounts",
+                    },
+                  ]
+                : [],
+            },
+          ]);
+          console.log("Agents seeded");
+        }
+      } catch (error) {
+        if (error.code === 11000) {
+          console.log("Agents already exist, skipping...");
+        } else {
+          throw error;
+        }
+      }
     } catch (error) {
       if (error.code === 11000) {
         console.log("Customers already exist, skipping...");

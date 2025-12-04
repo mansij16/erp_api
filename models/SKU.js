@@ -7,6 +7,11 @@ const skuSchema = new mongoose.Schema(
       unique: true,
       required: false, // Will be auto-generated
     },
+    skuAlias: {
+      type: String,
+      required: false,
+      trim: true,
+    },
     productId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Product",
@@ -34,28 +39,64 @@ const skuSchema = new mongoose.Schema(
 // Indexes
 skuSchema.index({ productId: 1, widthInches: 1 }, { unique: true });
 skuSchema.index({ skuCode: 1 });
+skuSchema.index({ skuAlias: 1 });
 skuSchema.index({ active: 1 });
 
-// Auto-generate skuCode: productCode-widthInches
+// Auto-generate skuCode & skuAlias: skuCode = widthInches + productCode, skuAlias = widthInches + productAlias
 skuSchema.pre("save", async function (next) {
-  // Only generate if skuCode is not set and we have required fields
-  if (!this.skuCode && this.productId && this.widthInches) {
+  const shouldRefreshIdentifiers =
+    this.isNew ||
+    this.isModified("productId") ||
+    this.isModified("widthInches");
+
+  const needsSkuCodeBackfill = !this.skuCode;
+  const needsSkuAliasBackfill = !this.skuAlias;
+
+  // Generate when creating/updating identifiers or when either field is missing
+  if (
+    (shouldRefreshIdentifiers || needsSkuCodeBackfill || needsSkuAliasBackfill) &&
+    this.productId &&
+    this.widthInches
+  ) {
     try {
       const Product = mongoose.model("Product");
       let product = this.productId;
-      
-      // Check if productId is populated (has productCode property) or just an ObjectId
-      if (product && product.productCode) {
-        // Already populated with product document
-        this.skuCode = `${product.productCode}-${this.widthInches}`;
-      } else {
-        // productId is an ObjectId, need to fetch the product
-        const fetchedProduct = await Product.findById(this.productId);
-        if (fetchedProduct && fetchedProduct.productCode) {
-          this.skuCode = `${fetchedProduct.productCode}-${this.widthInches}`;
-        } else {
-          return next(new Error("Product not found or productCode missing"));
+
+      const productHasRequiredCode =
+        product &&
+        typeof product === "object" &&
+        product.productCode;
+
+      const productHasAlias =
+        product &&
+        typeof product === "object" &&
+        product.productAlias;
+
+      if (
+        !productHasRequiredCode ||
+        ((shouldRefreshIdentifiers || needsSkuAliasBackfill) && !productHasAlias)
+      ) {
+        product = await Product.findById(this.productId).select(
+          "productCode productAlias"
+        );
+      }
+
+      if (!product) {
+        return next(new Error("Product not found"));
+      }
+
+      if (shouldRefreshIdentifiers || needsSkuCodeBackfill) {
+        if (!product.productCode) {
+          return next(new Error("Product code missing"));
         }
+        this.skuCode = `${this.widthInches}-${product.productCode}`;
+      }
+
+      if (shouldRefreshIdentifiers || needsSkuAliasBackfill) {
+        if (!product.productAlias) {
+          return next(new Error("Product alias missing"));
+        }
+        this.skuAlias = `${this.widthInches}-${product.productAlias}`;
       }
     } catch (error) {
       return next(error);

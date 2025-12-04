@@ -32,11 +32,6 @@ const customerSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    stateCode: {
-      type: String,
-      required: true,
-      length: 2,
-    },
     address: {
       billing: {
         line1: { type: String, required: true },
@@ -81,6 +76,11 @@ const customerSchema = new mongoose.Schema(
       monthlyCapacity: Number,
       targetSalesMeters: Number,
       businessType: String,
+    },
+    baseRate44: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     creditPolicy: {
       creditLimit: {

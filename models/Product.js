@@ -142,7 +142,7 @@ productSchema.pre("save", async function (next) {
       
       // Generate productCode: gsm + quality + category
       if (shouldRegenerateCode && categoryName && gsmName && qualityName) {
-        this.productCode = `${gsmName}${qualityName}${categoryName}`;
+        this.productCode = `${gsmName} ${qualityName} ${categoryName}`;
       }
     } catch (error) {
       return next(error);

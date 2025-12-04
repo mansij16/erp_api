@@ -85,7 +85,6 @@ const createCustomer = handleAsyncErrors(async (req, res) => {
     companyName,
     gstin,
     pan,
-    stateCode,
     businessInfo,
   } = req.body;
 
@@ -100,7 +99,6 @@ const createCustomer = handleAsyncErrors(async (req, res) => {
   const customer = await Customer.create({
     name,
     state,
-    stateCode,
     address,
     companyName,
     gstin,
