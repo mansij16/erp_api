@@ -80,7 +80,7 @@ class CustomerGroupService {
     // Check if customer group has customers before deleting
     const Customer = require("../models/Customer");
     const customerCount = await Customer.countDocuments({
-      customerGroupId: id,
+      $or: [{ customerGroupId: id }, { customerGroupIds: id }],
     });
 
     if (customerCount > 0) {

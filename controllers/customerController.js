@@ -2,6 +2,7 @@ const Customer = require("../models/Customer");
 const SalesInvoice = require("../models/SalesInvoice");
 const SalesOrder = require("../models/SalesOrder");
 const RateHistory = require("../models/RateHistory");
+const Agent = require("../models/Agent");
 const numberingService = require("../services/numberingService");
 const { handleAsyncErrors, AppError } = require("../utils/errorHandler");
 
@@ -11,13 +12,18 @@ const getCustomers = handleAsyncErrors(async (req, res) => {
   const filter = {};
 
   if (active !== undefined) filter.active = active === "true";
-  if (customerGroupId) filter.customerGroupId = customerGroupId;
+  if (customerGroupId) {
+    filter.$or = [
+      { customerGroupId },
+      { customerGroupIds: customerGroupId },
+    ];
+  }
   if (isBlocked !== undefined)
     filter["creditPolicy.isBlocked"] = isBlocked === "true";
 
   const customers = await Customer.find(filter)
-    .populate("customerGroupId", "name code")
-    .sort({ name: 1 });
+    .populate(customerRelationsPopulate)
+    .sort({ companyName: 1 });
 
   res.json({
     success: true,
@@ -29,8 +35,7 @@ const getCustomers = handleAsyncErrors(async (req, res) => {
 // Get single customer
 const getCustomer = handleAsyncErrors(async (req, res) => {
   const customer = await Customer.findById(req.params.id).populate(
-    "customerGroupId",
-    "name code description"
+    customerRelationsPopulate
   );
 
   if (!customer) {
@@ -71,22 +76,116 @@ const sanitizeCreditPolicy = (creditPolicy) => {
   };
 };
 
+const normalizeCustomerGroupIds = (groupIds, fallback) => {
+  let ids = [];
+
+  if (Array.isArray(groupIds)) {
+    ids = groupIds;
+  } else if (groupIds) {
+    ids = [groupIds];
+  }
+
+  if ((!ids || ids.length === 0) && fallback) {
+    ids = Array.isArray(fallback) ? fallback : [fallback];
+  }
+
+  const normalized = (ids || [])
+    .filter(Boolean)
+    .map((id) => {
+      if (typeof id === 'object' && id !== null) {
+        if (id._id) return id._id.toString();
+        if (id.toString) return id.toString();
+      }
+      return id;
+    });
+
+  return [...new Set(normalized)];
+};
+
+const validateAgentId = async (agentId) => {
+  if (!agentId) return null;
+
+  const agent = await Agent.findById(agentId);
+  if (!agent) {
+    throw new AppError("Agent not found", 400, "INVALID_AGENT");
+  }
+
+  return agent._id;
+};
+
+const syncAgentCustomerMapping = async (
+  customerId,
+  previousAgentId,
+  nextAgentId
+) => {
+  const prev = previousAgentId ? previousAgentId.toString() : null;
+  const next = nextAgentId ? nextAgentId.toString() : null;
+
+  const operations = [];
+
+  if (prev && (!next || prev !== next)) {
+    operations.push(
+      Agent.updateOne({ _id: prev }, { $pull: { customers: customerId } })
+    );
+  }
+
+  if (next) {
+    operations.push(
+      Agent.updateOne({ _id: next }, { $addToSet: { customers: customerId } })
+    );
+  }
+
+  if (operations.length) {
+    await Promise.all(operations);
+  }
+};
+
+const customerRelationsPopulate = [
+  { path: "customerGroupId", select: "name code description" },
+  { path: "customerGroupIds", select: "name code description" },
+  { path: "agentId", select: "name agentCode phone" },
+];
+
 // Create customer
 const createCustomer = handleAsyncErrors(async (req, res) => {
   const {
-    name,
     state,
     address,
     customerGroupId,
+    customerGroupIds,
     contactPersons,
     referralSource,
     creditPolicy,
     baseRate44,
     companyName,
+    agentId,
     gstin,
     pan,
     businessInfo,
   } = req.body;
+
+  const normalizedCompanyName = companyName || req.body.name;
+
+  if (!normalizedCompanyName) {
+    throw new AppError(
+      "Company name is required",
+      400,
+      "VALIDATION_ERROR"
+    );
+  }
+
+  const normalizedGroups = normalizeCustomerGroupIds(
+    customerGroupIds,
+    customerGroupId
+  );
+
+  if (!normalizedGroups.length) {
+    throw new AppError(
+      "At least one customer group is required",
+      400,
+      "VALIDATION_ERROR"
+    );
+  }
 
   // Sanitize numeric fields
   const sanitizedCreditPolicy = sanitizeCreditPolicy(creditPolicy);
@@ -96,14 +195,17 @@ const createCustomer = handleAsyncErrors(async (req, res) => {
     targetSalesMeters: sanitizeNumericValue(businessInfo.targetSalesMeters),
   } : businessInfo;
 
+  const normalizedAgentId = await validateAgentId(agentId);
+
   const customer = await Customer.create({
-    name,
     state,
     address,
-    companyName,
+    companyName: normalizedCompanyName,
     gstin,
     pan,
-    customerGroupId,
+    customerGroupId: normalizedGroups[0],
+    customerGroupIds: normalizedGroups,
+    agentId: normalizedAgentId,
     contactPersons,
     referral: referralSource,
     creditPolicy: sanitizedCreditPolicy,
@@ -111,9 +213,10 @@ const createCustomer = handleAsyncErrors(async (req, res) => {
     businessInfo: sanitizedBusinessInfo,
   });
 
+  await syncAgentCustomerMapping(customer._id, null, normalizedAgentId);
+
   const populatedCustomer = await Customer.findById(customer._id).populate(
-    "customerGroupId",
-    "name code"
+    customerRelationsPopulate
   );
 
   res.status(201).json({
@@ -131,8 +234,48 @@ const updateCustomer = handleAsyncErrors(async (req, res) => {
   }
 
   // Sanitize numeric fields before updating
+  const existingCustomer = await Customer.findById(req.params.id);
+
+  if (!existingCustomer) {
+    throw new AppError("Customer not found", 404, "RESOURCE_NOT_FOUND");
+  }
+
+  const previousAgentId = existingCustomer.agentId;
+
   const updateData = { ...req.body };
+
+  if (updateData.name && !updateData.companyName) {
+    updateData.companyName = updateData.name;
+  }
+  delete updateData.name;
+
+  if (
+    Object.prototype.hasOwnProperty.call(updateData, "customerGroupIds") ||
+    Object.prototype.hasOwnProperty.call(updateData, "customerGroupId")
+  ) {
+    const normalizedGroups = normalizeCustomerGroupIds(
+      updateData.customerGroupIds,
+      updateData.customerGroupId
+    );
+
+    if (!normalizedGroups.length) {
+      throw new AppError(
+        "At least one customer group is required",
+        400,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    updateData.customerGroupIds = normalizedGroups;
+    updateData.customerGroupId = normalizedGroups[0];
+  }
   
+  if (
+    Object.prototype.hasOwnProperty.call(updateData, "agentId")
+  ) {
+    updateData.agentId = await validateAgentId(updateData.agentId);
+  }
+
   if (updateData.creditPolicy) {
     updateData.creditPolicy = sanitizeCreditPolicy(updateData.creditPolicy);
   }
@@ -155,11 +298,17 @@ const updateCustomer = handleAsyncErrors(async (req, res) => {
       new: true,
       runValidators: true,
     }
-  ).populate("customerGroupId", "name code");
+  ).populate(customerRelationsPopulate);
 
   if (!customer) {
     throw new AppError("Customer not found", 404, "RESOURCE_NOT_FOUND");
   }
+
+  await syncAgentCustomerMapping(
+    customer._id,
+    previousAgentId,
+    customer.agentId
+  );
 
   res.json({
     success: true,
@@ -171,8 +320,7 @@ const updateCustomer = handleAsyncErrors(async (req, res) => {
 const checkCredit = handleAsyncErrors(async (req, res) => {
   const customerId = req.params.id;
   const customer = await Customer.findById(customerId).populate(
-    "customerGroupId",
-    "name code"
+    customerRelationsPopulate
   );
 
   if (!customer) {
@@ -242,8 +390,7 @@ const blockCustomer = handleAsyncErrors(async (req, res) => {
   await customer.save();
 
   const populatedCustomer = await Customer.findById(customer._id).populate(
-    "customerGroupId",
-    "name code"
+    customerRelationsPopulate
   );
 
   res.json({
@@ -265,8 +412,7 @@ const unblockCustomer = handleAsyncErrors(async (req, res) => {
   await customer.save();
 
   const populatedCustomer = await Customer.findById(customer._id).populate(
-    "customerGroupId",
-    "name code"
+    customerRelationsPopulate
   );
 
   res.json({
@@ -282,6 +428,8 @@ const deleteCustomer = handleAsyncErrors(async (req, res) => {
   if (!customer) {
     throw new AppError("Customer not found", 404, "RESOURCE_NOT_FOUND");
   }
+
+  await syncAgentCustomerMapping(customer._id, customer.agentId, null);
 
   res.json({
     success: true,

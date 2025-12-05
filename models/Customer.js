@@ -7,11 +7,6 @@ const customerSchema = new mongoose.Schema(
       unique: true,
       uppercase: true,
     },
-    name: {
-      type: String,
-      required: [true, "Customer name is required"],
-      trim: true,
-    },
     companyName: {
       type: String,
       required: true,
@@ -60,11 +55,21 @@ const customerSchema = new mongoose.Schema(
         isPrimary: { type: Boolean, default: false },
       },
     ],
+    agentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Agent",
+    },
     customerGroupId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "CustomerGroup",
       required: [true, "Customer group is required"],
     },
+    customerGroupIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "CustomerGroup",
+      },
+    ],
     referral: {
       source: String,
       name: String,
@@ -172,9 +177,11 @@ const customerSchema = new mongoose.Schema(
 customerSchema.index({ customerCode: 1 });
 customerSchema.index({ gstin: 1 });
 customerSchema.index({ customerGroupId: 1 });
+customerSchema.index({ agentId: 1 });
+customerSchema.index({ customerGroupIds: 1 });
 customerSchema.index({ active: 1 });
 customerSchema.index({ "creditPolicy.isBlocked": 1 });
-customerSchema.index({ name: "text", companyName: "text" });
+customerSchema.index({ companyName: "text" });
 
 // Generate customer code
 customerSchema.pre("save", async function (next) {

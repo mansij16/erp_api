@@ -21,7 +21,7 @@ const getSalesOrders = handleAsyncErrors(async (req, res) => {
   const salesOrders = await SalesOrder.find(filter)
     .populate({
       path: "customerId",
-      select: "name customerCode",
+      select: "companyName customerCode",
       populate: { path: "customerGroupId", select: "name code" },
     })
     .sort({ createdAt: -1 });
@@ -38,7 +38,7 @@ const getSalesOrder = handleAsyncErrors(async (req, res) => {
   const salesOrder = await SalesOrder.findById(req.params.id)
     .populate({
       path: "customerId",
-      select: "name customerCode creditPolicy baseRate44",
+      select: "companyName customerCode creditPolicy baseRate44",
       populate: { path: "customerGroupId", select: "name code" },
     })
     .populate("lines.skuId", "skuCode categoryName gsm qualityName widthInches");
@@ -123,7 +123,7 @@ const createSalesOrder = handleAsyncErrors(async (req, res) => {
   const salesOrder = await SalesOrder.create({
     soNumber,
     customerId,
-    customerName: customer.name,
+    customerName: customer.companyName,
     customerGroup:
       customerWithGroup.customerGroupId?.name ||
       customerWithGroup.group ||
@@ -140,7 +140,7 @@ const createSalesOrder = handleAsyncErrors(async (req, res) => {
   const populatedOrder = await SalesOrder.findById(salesOrder._id)
     .populate({
       path: "customerId",
-      select: "name customerCode",
+      select: "companyName customerCode",
       populate: { path: "customerGroupId", select: "name code" },
     })
     .populate("lines.skuId", "skuCode categoryName gsm qualityName widthInches");

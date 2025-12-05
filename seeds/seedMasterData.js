@@ -253,9 +253,8 @@ const seedData = async () => {
     try {
       await Supplier.insertMany([
         {
-          code: "GPM001",
+          supplierCode: "GPM001",
           name: "Gujarat Paper Mills",
-          companyName: "Gujarat Paper Mills Pvt Ltd",
           gstin: "24ABCDE1234F1Z5",
           pan: "ABCDE1234F",
           state: "Gujarat",
@@ -270,7 +269,6 @@ const seedData = async () => {
               name: "Ramesh Patel",
               designation: "Sales Manager",
               phone: "9876543210",
-              email: "ramesh@gujaratpaper.com",
               isPrimary: true,
             },
           ],
@@ -280,9 +278,8 @@ const seedData = async () => {
           active: true,
         },
         {
-          code: "PIT001",
+          supplierCode: "PIT001",
           name: "Premium Imports Trading",
-          companyName: "Premium Imports Trading Co.",
           gstin: "24ABCDE1234F1Z6",
           pan: "ABCDE1234F",
           state: "Gujarat",
@@ -297,7 +294,6 @@ const seedData = async () => {
               name: "Suresh Shah",
               designation: "Owner",
               phone: "9876543211",
-              email: "suresh@premiumimports.com",
               isPrimary: true,
             },
           ],
@@ -329,8 +325,9 @@ const seedData = async () => {
 
       const insertedCustomers = await Customer.insertMany([
         {
-          name: "ABC Printers",
           companyName: "ABC Printers Pvt Ltd",
+          gst: "REGULAR",
+          customerGroupIds: [wholesaleGroupId],
           state: "Gujarat",
           address: {
             billing: {
@@ -369,8 +366,9 @@ const seedData = async () => {
           active: true,
         },
         {
-          name: "XYZ Digital Solutions",
           companyName: "XYZ Digital Solutions",
+          gst: "COMPOSITE",
+          customerGroupIds: [cashGroupId],
           state: "Gujarat",
           address: {
             billing: {

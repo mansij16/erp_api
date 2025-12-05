@@ -39,7 +39,6 @@ class SupplierService {
     if (filters.search) {
       query.$or = [
         { name: { $regex: filters.search, $options: "i" } },
-        { companyName: { $regex: filters.search, $options: "i" } },
         { supplierCode: { $regex: filters.search, $options: "i" } },
         { gstin: { $regex: filters.search, $options: "i" } },
       ];

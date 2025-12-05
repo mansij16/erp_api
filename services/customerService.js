@@ -1,8 +1,77 @@
 // services/customerService.js
 const Customer = require("../models/Customer");
 const CustomerRate = require("../models/CustomerRate");
+const Agent = require("../models/Agent");
 const AppError = require("../utils/AppError");
 const mongoose = require("mongoose");
+
+const validateAgentId = async (agentId) => {
+  if (!agentId) return null;
+
+  if (!mongoose.Types.ObjectId.isValid(agentId)) {
+    throw new AppError("Invalid agent id", 400);
+  }
+
+  const agent = await Agent.findById(agentId);
+  if (!agent) {
+    throw new AppError("Agent not found", 404);
+  }
+
+  return agent._id;
+};
+
+const syncAgentCustomerMapping = async (
+  customerId,
+  previousAgentId,
+  nextAgentId
+) => {
+  const prev = previousAgentId ? previousAgentId.toString() : null;
+  const next = nextAgentId ? nextAgentId.toString() : null;
+
+  const operations = [];
+
+  if (prev && (!next || prev !== next)) {
+    operations.push(
+      Agent.updateOne({ _id: prev }, { $pull: { customers: customerId } })
+    );
+  }
+
+  if (next) {
+    operations.push(
+      Agent.updateOne({ _id: next }, { $addToSet: { customers: customerId } })
+    );
+  }
+
+  if (operations.length) {
+    await Promise.all(operations);
+  }
+};
+
+const normalizeCustomerGroupIds = (groupIds, fallback) => {
+  let ids = [];
+
+  if (Array.isArray(groupIds)) {
+    ids = groupIds;
+  } else if (groupIds) {
+    ids = [groupIds];
+  }
+
+  if ((!ids || ids.length === 0) && fallback) {
+    ids = Array.isArray(fallback) ? fallback : [fallback];
+  }
+
+  const normalized = (ids || [])
+    .filter(Boolean)
+    .map((id) => {
+      if (typeof id === "object" && id !== null) {
+        if (id._id) return id._id.toString();
+        if (id.toString) return id.toString();
+      }
+      return id;
+    });
+
+  return [...new Set(normalized)];
+};
 
 class CustomerService {
   async createCustomer(data) {
@@ -33,7 +102,23 @@ class CustomerService {
       ];
     }
 
+    const normalizedGroups = normalizeCustomerGroupIds(
+      data.customerGroupIds,
+      data.customerGroupId
+    );
+
+    if (!normalizedGroups.length) {
+      throw new AppError("At least one customer group is required", 400);
+    }
+
+    data.customerGroupIds = normalizedGroups;
+    data.customerGroupId = normalizedGroups[0];
+
+    const normalizedAgentId = await validateAgentId(data.agentId);
+    data.agentId = normalizedAgentId;
+
     const customer = await Customer.create(data);
+    await syncAgentCustomerMapping(customer._id, null, normalizedAgentId);
     return customer;
   }
 
@@ -97,6 +182,35 @@ class CustomerService {
     delete updateData.gstin;
     delete updateData.customerCode;
 
+    const existingCustomer = await Customer.findById(id);
+
+    if (!existingCustomer) {
+      throw new AppError("Customer not found", 404);
+    }
+
+    const previousAgentId = existingCustomer.agentId;
+
+    if (
+      Object.prototype.hasOwnProperty.call(updateData, "customerGroupIds") ||
+      Object.prototype.hasOwnProperty.call(updateData, "customerGroupId")
+    ) {
+      const normalizedGroups = normalizeCustomerGroupIds(
+        updateData.customerGroupIds,
+        updateData.customerGroupId
+      );
+
+      if (!normalizedGroups.length) {
+        throw new AppError("At least one customer group is required", 400);
+      }
+
+      updateData.customerGroupIds = normalizedGroups;
+      updateData.customerGroupId = normalizedGroups[0];
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updateData, "agentId")) {
+      updateData.agentId = await validateAgentId(updateData.agentId);
+    }
+
     const customer = await Customer.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
@@ -105,6 +219,12 @@ class CustomerService {
     if (!customer) {
       throw new AppError("Customer not found", 404);
     }
+
+    await syncAgentCustomerMapping(
+      customer._id,
+      previousAgentId,
+      customer.agentId
+    );
 
     return customer;
   }

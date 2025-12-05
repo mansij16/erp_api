@@ -6,15 +6,12 @@ const supplierSchema = new mongoose.Schema(
       type: String,
       unique: true,
       uppercase: true,
+      required: [true, "Supplier code is required"],
+      trim: true,
     },
     name: {
       type: String,
       required: [true, "Supplier name is required"],
-      trim: true,
-    },
-    companyName: {
-      type: String,
-      required: true,
       trim: true,
     },
     gstin: {
@@ -44,7 +41,6 @@ const supplierSchema = new mongoose.Schema(
         name: { type: String, required: true },
         designation: String,
         phone: { type: String, required: true },
-        email: { type: String, lowercase: true },
         isPrimary: { type: Boolean, default: false },
       },
     ],
@@ -115,18 +111,5 @@ supplierSchema.index({ supplierCode: 1 });
 supplierSchema.index({ gstin: 1 });
 supplierSchema.index({ active: 1 });
 supplierSchema.index({ preferredSupplier: 1 });
-
-// Generate supplier code
-supplierSchema.pre("save", async function (next) {
-  if (!this.supplierCode && this.isNew) {
-    // Generate code from company name first 3 letters + sequence
-    const prefix = this.companyName.substring(0, 3).toUpperCase();
-    const count = await this.constructor.countDocuments({
-      supplierCode: new RegExp(`^${prefix}`),
-    });
-    this.supplierCode = `${prefix}${(count + 1).toString().padStart(3, "0")}`;
-  }
-  next();
-});
 
 module.exports = mongoose.model("Supplier", supplierSchema);
