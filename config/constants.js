@@ -18,12 +18,14 @@ module.exports = {
     UNPAID: "Unpaid",
     PARTIALLY_PAID: "PartiallyPaid",
   },
-  
+
   PURCHASE_ORDER_STATUS: {
     DRAFT: "Draft",
     PENDING: "Pending",
     PARTIAL: "Partial",
     COMPLETE: "Complete",
+    APPROVED: "Approved",
+    CLOSED: "Closed",
   },
 
   // Roll Status

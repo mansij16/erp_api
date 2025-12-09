@@ -68,7 +68,8 @@ const deriveOrderStatusFromLines = (lines = []) => {
   }
 
   const completedCount = lines.filter(
-    (line = {}) => (line.status || "").toLowerCase() === "complete"
+    (line = {}) =>
+      (line.lineStatus || line.status || "").toLowerCase() === "complete"
   ).length;
   const totalCount = lines.length;
 
@@ -85,7 +86,14 @@ const deriveOrderStatusFromLines = (lines = []) => {
 
 // Create purchase order
 const createPurchaseOrder = handleAsyncErrors(async (req, res) => {
-  const { supplierId, lines, notes, status: requestedStatus } = req.body;
+  const {
+    supplierId,
+    lines,
+    notes,
+    status: requestedStatusLegacy,
+    poStatus: requestedPoStatus,
+    saveAsDraft,
+  } = req.body;
 
   // Verify supplier exists
   const supplier = await Supplier.findById(supplierId);
@@ -107,7 +115,9 @@ const createPurchaseOrder = handleAsyncErrors(async (req, res) => {
     const lineMeters = qtyRolls * lengthMetersPerRoll;
     const lineTotal = lineMeters * ratePerRoll;
     const lineStatus =
-      typeof line.status === "string" && line.status.trim()
+      typeof line.lineStatus === "string" && line.lineStatus.trim()
+        ? line.lineStatus
+        : typeof line.status === "string" && line.status.trim()
         ? line.status
         : "Pending";
     const { taxRate: _ignoredTaxRate, ...restLine } = line || {};
@@ -122,26 +132,30 @@ const createPurchaseOrder = handleAsyncErrors(async (req, res) => {
       lengthMetersPerRoll,
       totalMeters: lineMeters,
       lineTotal,
-      status: lineStatus,
+      lineStatus,
     };
   });
 
-  const headerStatus =
-    requestedStatus === PURCHASE_ORDER_STATUS.DRAFT
-      ? PURCHASE_ORDER_STATUS.DRAFT
-      : Object.values(PURCHASE_ORDER_STATUS).includes(requestedStatus)
-      ? requestedStatus
-      : deriveOrderStatusFromLines(processedLines);
+  // For create:
+  // - If saveAsDraft true => Draft + all lines Pending
+  // - Else => Pending + all lines Pending
+  const headerStatus = saveAsDraft
+    ? PURCHASE_ORDER_STATUS.DRAFT
+    : PURCHASE_ORDER_STATUS.PENDING;
+  const normalizedLinesForCreate = processedLines.map((line) => ({
+    ...line,
+    lineStatus: "Pending",
+  }));
 
   const purchaseOrder = await PurchaseOrder.create({
     poNumber,
     supplierId,
     supplierName: supplier.name,
-    lines: processedLines,
+    lines: normalizedLinesForCreate,
     subtotal,
     totalAmount: subtotal,
     totalMeters: totalMetersSum,
-    status: headerStatus,
+    poStatus: headerStatus,
     notes,
     createdBy: req.user?._id,
   });
@@ -161,7 +175,13 @@ const createPurchaseOrder = handleAsyncErrors(async (req, res) => {
 
 // Update purchase order
 const updatePurchaseOrder = handleAsyncErrors(async (req, res) => {
-  const { lines, notes, status: requestedStatus } = req.body;
+  const {
+    lines,
+    notes,
+    status: requestedStatusLegacy,
+    poStatus: requestedPoStatus,
+    saveAsDraft,
+  } = req.body;
 
   const purchaseOrder = await PurchaseOrder.findById(req.params.id);
   if (!purchaseOrder) {
@@ -179,10 +199,12 @@ const updatePurchaseOrder = handleAsyncErrors(async (req, res) => {
       const lengthMetersPerRoll = sanitizeNumber(line.lengthMetersPerRoll);
       const lineMeters = qtyRolls * lengthMetersPerRoll;
       const lineTotal = lineMeters * ratePerRoll;
-      const lineStatus =
-        typeof line.status === "string" && line.status.trim()
-          ? line.status
-          : "Pending";
+    const lineStatus =
+      typeof line.lineStatus === "string" && line.lineStatus.trim()
+        ? line.lineStatus
+        : typeof line.status === "string" && line.status.trim()
+        ? line.status
+        : "Pending";
       const { taxRate: _ignoredTaxRate, ...restLine } = line || {};
 
       subtotal += lineTotal;
@@ -195,7 +217,7 @@ const updatePurchaseOrder = handleAsyncErrors(async (req, res) => {
         lengthMetersPerRoll,
         totalMeters: lineMeters,
         lineTotal,
-        status: lineStatus,
+        lineStatus,
       };
     });
 
@@ -206,13 +228,26 @@ const updatePurchaseOrder = handleAsyncErrors(async (req, res) => {
   }
 
   const latestLines = purchaseOrder.lines || [];
-  const headerStatus =
-    requestedStatus === PURCHASE_ORDER_STATUS.DRAFT
-      ? PURCHASE_ORDER_STATUS.DRAFT
-      : Object.values(PURCHASE_ORDER_STATUS).includes(requestedStatus)
-      ? requestedStatus
-      : deriveOrderStatusFromLines(latestLines);
-  purchaseOrder.status = headerStatus;
+  let headerStatus;
+  if (saveAsDraft) {
+    headerStatus = PURCHASE_ORDER_STATUS.DRAFT;
+    purchaseOrder.lines = latestLines.map((line) => ({
+      ...line,
+      lineStatus: "Pending",
+    }));
+  } else {
+    const requestedStatus = requestedPoStatus || requestedStatusLegacy;
+    headerStatus = deriveOrderStatusFromLines(latestLines);
+
+    // If a valid status is explicitly provided, let it override derived only when it's Draft/Pending/Partial/Complete
+    if (
+      Object.values(PURCHASE_ORDER_STATUS).includes(requestedStatus) &&
+      ["Draft", "Pending", "Partial", "Complete"].includes(requestedStatus)
+    ) {
+      headerStatus = requestedStatus;
+    }
+  }
+  purchaseOrder.poStatus = headerStatus;
 
   if (notes !== undefined) purchaseOrder.notes = notes;
 
@@ -239,7 +274,7 @@ const approvePurchaseOrder = handleAsyncErrors(async (req, res) => {
     throw new AppError("Purchase order not found", 404, "RESOURCE_NOT_FOUND");
   }
 
-  if (purchaseOrder.status !== "Draft") {
+  if (purchaseOrder.poStatus !== PURCHASE_ORDER_STATUS.DRAFT) {
     throw new AppError(
       "Only draft purchase orders can be approved",
       400,
@@ -247,8 +282,8 @@ const approvePurchaseOrder = handleAsyncErrors(async (req, res) => {
     );
   }
 
-  purchaseOrder.status = "Approved";
-  purchaseOrder.approvedBy = req.user._id;
+  purchaseOrder.poStatus = PURCHASE_ORDER_STATUS.APPROVED;
+  purchaseOrder.approvedBy = req.user?._id;
   purchaseOrder.approvedAt = new Date();
   await purchaseOrder.save();
 
@@ -266,7 +301,13 @@ const closePurchaseOrder = handleAsyncErrors(async (req, res) => {
     throw new AppError("Purchase order not found", 404, "RESOURCE_NOT_FOUND");
   }
 
-  if (!["Approved", "PartiallyReceived"].includes(purchaseOrder.status)) {
+  if (
+    ![
+      PURCHASE_ORDER_STATUS.APPROVED,
+      PURCHASE_ORDER_STATUS.PARTIAL,
+      "PartiallyReceived",
+    ].includes(purchaseOrder.poStatus)
+  ) {
     throw new AppError(
       "Only approved or partially received purchase orders can be closed",
       400,
@@ -274,7 +315,7 @@ const closePurchaseOrder = handleAsyncErrors(async (req, res) => {
     );
   }
 
-  purchaseOrder.status = "Closed";
+  purchaseOrder.poStatus = PURCHASE_ORDER_STATUS.CLOSED;
   await purchaseOrder.save();
 
   res.json({

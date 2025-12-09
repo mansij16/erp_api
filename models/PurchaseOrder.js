@@ -21,7 +21,7 @@ const purchaseOrderSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
-    status: {
+    poStatus: {
       type: String,
       enum: Object.values(PURCHASE_ORDER_STATUS),
       default: PURCHASE_ORDER_STATUS.DRAFT,
@@ -36,7 +36,7 @@ const purchaseOrderSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "SKU",
         },
-        status: {
+        lineStatus: {
           type: String,
           enum: ["Pending", "Complete"],
           default: "Pending",
