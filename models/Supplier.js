@@ -87,6 +87,20 @@ const supplierSchema = new mongoose.Schema(
         ref: "Category",
       },
     ],
+    categoryRates: [
+      {
+        categoryId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Category",
+          required: true,
+        },
+        baseRate: {
+          type: Number,
+          default: 0,
+          min: 0,
+        },
+      },
+    ],
     products: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -111,5 +125,6 @@ supplierSchema.index({ supplierCode: 1 });
 supplierSchema.index({ gstin: 1 });
 supplierSchema.index({ active: 1 });
 supplierSchema.index({ preferredSupplier: 1 });
+supplierSchema.index({ "categoryRates.categoryId": 1 });
 
 module.exports = mongoose.model("Supplier", supplierSchema);

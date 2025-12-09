@@ -2,6 +2,15 @@ const SKU = require("../models/SKU");
 const Product = require("../models/Product");
 const AppError = require("../utils/AppError");
 
+const PRODUCT_POPULATE = {
+  path: "productId",
+  populate: [
+    { path: "category" },
+    { path: "gsm" },
+    { path: "quality" },
+  ],
+};
+
 class SKUService {
   async createSKU(data) {
     // Verify product exists
@@ -21,10 +30,7 @@ class SKUService {
     }
 
     const sku = await SKU.create(data);
-    return sku.populate({
-      path: "productId",
-      populate: { path: "category" },
-    });
+    return sku.populate(PRODUCT_POPULATE);
   }
 
   async getAllSKUs(filters = {}, pagination = {}) {
@@ -75,10 +81,7 @@ class SKUService {
 
     const [skus, total] = await Promise.all([
       SKU.find(query)
-        .populate({
-          path: "productId",
-          populate: { path: "category" },
-        })
+        .populate(PRODUCT_POPULATE)
         .sort({ skuCode: 1 })
         .skip(skip)
         .limit(limit),
@@ -97,10 +100,7 @@ class SKUService {
   }
 
   async getSKUById(id) {
-    const sku = await SKU.findById(id).populate({
-      path: "productId",
-      populate: { path: "category" },
-    });
+    const sku = await SKU.findById(id).populate(PRODUCT_POPULATE);
 
     if (!sku) {
       throw new AppError("SKU not found", 404);
@@ -110,10 +110,7 @@ class SKUService {
   }
 
   async getSKUByCode(skuCode) {
-    const sku = await SKU.findOne({ skuCode }).populate({
-      path: "productId",
-      populate: { path: "category" },
-    });
+    const sku = await SKU.findOne({ skuCode }).populate(PRODUCT_POPULATE);
 
     if (!sku) {
       throw new AppError("SKU not found", 404);
@@ -132,10 +129,7 @@ class SKUService {
     const sku = await SKU.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
-    }).populate({
-      path: "productId",
-      populate: { path: "category" },
-    });
+    }).populate(PRODUCT_POPULATE);
 
     if (!sku) {
       throw new AppError("SKU not found", 404);
@@ -154,10 +148,7 @@ class SKUService {
     sku.active = !sku.active;
     await sku.save();
 
-    return sku.populate({
-      path: "productId",
-      populate: { path: "category" },
-    });
+    return sku.populate(PRODUCT_POPULATE);
   }
 
   async deleteSKU(id) {

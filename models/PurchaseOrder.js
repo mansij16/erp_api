@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const { STATUS } = require("../config/constants");
+const { PURCHASE_ORDER_STATUS } = require("../config/constants");
 
 const purchaseOrderSchema = new mongoose.Schema(
   {
@@ -23,8 +23,8 @@ const purchaseOrderSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: Object.values(STATUS),
-      default: STATUS.DRAFT,
+      enum: Object.values(PURCHASE_ORDER_STATUS),
+      default: PURCHASE_ORDER_STATUS.DRAFT,
     },
     currency: {
       type: String,
@@ -36,16 +36,25 @@ const purchaseOrderSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "SKU",
         },
+        status: {
+          type: String,
+          enum: ["Pending", "Complete"],
+          default: "Pending",
+        },
         categoryName: String,
         gsm: String,
         qualityName: String,
         widthInches: Number,
-        qtyRolls: Number,
-        ratePerRoll: Number,
-        taxRate: {
+        lengthMetersPerRoll: {
           type: Number,
-          default: 18,
+          default: 0,
         },
+        qtyRolls: Number,
+        totalMeters: {
+          type: Number,
+          default: 0,
+        },
+        ratePerRoll: Number,
         lineTotal: Number,
         receivedQty: {
           type: Number,
@@ -58,8 +67,11 @@ const purchaseOrderSchema = new mongoose.Schema(
       },
     ],
     subtotal: Number,
-    taxAmount: Number,
-    total: Number,
+    totalAmount: Number,
+    totalMeters: {
+      type: Number,
+      default: 0,
+    },
     notes: String,
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

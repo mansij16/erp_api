@@ -3,13 +3,14 @@ const Supplier = require("../models/Supplier");
 const SKU = require("../models/SKU");
 const numberingService = require("../services/numberingService");
 const { handleAsyncErrors, AppError } = require("../utils/errorHandler");
+const { STATUS, PURCHASE_ORDER_STATUS } = require("../config/constants");
 
 // Get all purchase orders
 const getPurchaseOrders = handleAsyncErrors(async (req, res) => {
-  const { status, supplierId, dateFrom, dateTo } = req.query;
+  const { supplierId, dateFrom, dateTo } = req.query;
 
   const filter = {};
-  if (status) filter.status = status;
+  // if (status) filter.status = status;
   if (supplierId) filter.supplierId = supplierId;
   if (dateFrom || dateTo) {
     filter.date = {};
@@ -47,9 +48,44 @@ const getPurchaseOrder = handleAsyncErrors(async (req, res) => {
   });
 });
 
+const sanitizeNumber = (value) => {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const cleaned = value.replace(/[₹,$,\s]/g, "");
+    const parsed = parseFloat(cleaned);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  if (typeof value === "object" && typeof value.value === "number") {
+    return value.value;
+  }
+  return Number(value) || 0;
+};
+
+const deriveOrderStatusFromLines = (lines = []) => {
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return PURCHASE_ORDER_STATUS.DRAFT;
+  }
+
+  const completedCount = lines.filter(
+    (line = {}) => (line.status || "").toLowerCase() === "complete"
+  ).length;
+  const totalCount = lines.length;
+
+  if (completedCount === totalCount) {
+    return PURCHASE_ORDER_STATUS.COMPLETE;
+  }
+
+  if (completedCount > 0) {
+    return PURCHASE_ORDER_STATUS.PARTIAL;
+  }
+
+  return PURCHASE_ORDER_STATUS.PENDING;
+};
+
 // Create purchase order
 const createPurchaseOrder = handleAsyncErrors(async (req, res) => {
-  const { supplierId, lines, notes } = req.body;
+  const { supplierId, lines, notes, status: requestedStatus } = req.body;
 
   // Verify supplier exists
   const supplier = await Supplier.findById(supplierId);
@@ -62,20 +98,40 @@ const createPurchaseOrder = handleAsyncErrors(async (req, res) => {
 
   // Calculate totals
   let subtotal = 0;
-  let taxAmount = 0;
+  let totalMetersSum = 0;
 
-  const processedLines = lines.map((line) => {
-    const lineTotal = line.qtyRolls * line.ratePerRoll;
-    const lineTax = lineTotal * (line.taxRate / 100);
+  const processedLines = (lines || []).map((line = {}) => {
+    const qtyRolls = sanitizeNumber(line.qtyRolls);
+    const ratePerRoll = sanitizeNumber(line.ratePerRoll);
+    const lengthMetersPerRoll = sanitizeNumber(line.lengthMetersPerRoll);
+    const lineMeters = qtyRolls * lengthMetersPerRoll;
+    const lineTotal = lineMeters * ratePerRoll;
+    const lineStatus =
+      typeof line.status === "string" && line.status.trim()
+        ? line.status
+        : "Pending";
+    const { taxRate: _ignoredTaxRate, ...restLine } = line || {};
 
     subtotal += lineTotal;
-    taxAmount += lineTax;
+    totalMetersSum += lineMeters;
 
     return {
-      ...line,
-      lineTotal: lineTotal + lineTax,
+      ...restLine,
+      qtyRolls,
+      ratePerRoll,
+      lengthMetersPerRoll,
+      totalMeters: lineMeters,
+      lineTotal,
+      status: lineStatus,
     };
   });
+
+  const headerStatus =
+    requestedStatus === PURCHASE_ORDER_STATUS.DRAFT
+      ? PURCHASE_ORDER_STATUS.DRAFT
+      : Object.values(PURCHASE_ORDER_STATUS).includes(requestedStatus)
+      ? requestedStatus
+      : deriveOrderStatusFromLines(processedLines);
 
   const purchaseOrder = await PurchaseOrder.create({
     poNumber,
@@ -83,10 +139,11 @@ const createPurchaseOrder = handleAsyncErrors(async (req, res) => {
     supplierName: supplier.name,
     lines: processedLines,
     subtotal,
-    taxAmount: taxAmount || 0,
-    total: subtotal + taxAmount || 0,
+    totalAmount: subtotal,
+    totalMeters: totalMetersSum,
+    status: headerStatus,
     notes,
-    createdBy: req.user._id || "Mansi",
+    createdBy: req.user?._id,
   });
 
   const populatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
@@ -104,7 +161,7 @@ const createPurchaseOrder = handleAsyncErrors(async (req, res) => {
 
 // Update purchase order
 const updatePurchaseOrder = handleAsyncErrors(async (req, res) => {
-  const { lines, notes } = req.body;
+  const { lines, notes, status: requestedStatus } = req.body;
 
   const purchaseOrder = await PurchaseOrder.findById(req.params.id);
   if (!purchaseOrder) {
@@ -114,26 +171,48 @@ const updatePurchaseOrder = handleAsyncErrors(async (req, res) => {
   // Recalculate totals if lines are updated
   if (lines) {
     let subtotal = 0;
-    let taxAmount = 0;
+    let totalMetersSum = 0;
 
-    const processedLines = lines.map((line) => {
-      const lineTotal = line.qtyRolls * line.ratePerRoll;
-      const lineTax = lineTotal * (line.taxRate / 100);
+    const processedLines = (lines || []).map((line = {}) => {
+      const qtyRolls = sanitizeNumber(line.qtyRolls);
+      const ratePerRoll = sanitizeNumber(line.ratePerRoll);
+      const lengthMetersPerRoll = sanitizeNumber(line.lengthMetersPerRoll);
+      const lineMeters = qtyRolls * lengthMetersPerRoll;
+      const lineTotal = lineMeters * ratePerRoll;
+      const lineStatus =
+        typeof line.status === "string" && line.status.trim()
+          ? line.status
+          : "Pending";
+      const { taxRate: _ignoredTaxRate, ...restLine } = line || {};
 
       subtotal += lineTotal;
-      taxAmount += lineTax;
+      totalMetersSum += lineMeters;
 
       return {
-        ...line,
-        lineTotal: lineTotal + lineTax,
+        ...restLine,
+        qtyRolls,
+        ratePerRoll,
+        lengthMetersPerRoll,
+        totalMeters: lineMeters,
+        lineTotal,
+        status: lineStatus,
       };
     });
 
     purchaseOrder.lines = processedLines;
     purchaseOrder.subtotal = subtotal;
-    purchaseOrder.taxAmount = taxAmount || 0;
-    purchaseOrder.total = subtotal + taxAmount || 0;
+    purchaseOrder.totalAmount = subtotal;
+    purchaseOrder.totalMeters = totalMetersSum;
   }
+
+  const latestLines = purchaseOrder.lines || [];
+  const headerStatus =
+    requestedStatus === PURCHASE_ORDER_STATUS.DRAFT
+      ? PURCHASE_ORDER_STATUS.DRAFT
+      : Object.values(PURCHASE_ORDER_STATUS).includes(requestedStatus)
+      ? requestedStatus
+      : deriveOrderStatusFromLines(latestLines);
+  purchaseOrder.status = headerStatus;
 
   if (notes !== undefined) purchaseOrder.notes = notes;
 

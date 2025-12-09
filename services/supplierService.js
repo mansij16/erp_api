@@ -1,6 +1,77 @@
 const Supplier = require("../models/Supplier");
 const AppError = require("../utils/AppError");
 
+const sanitizeNumericValue = (value) => {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  if (typeof value === "number" && !Number.isNaN(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const cleaned = value.replace(/[^\d.-]/g, "");
+    if (!cleaned) return null;
+    const parsed = parseFloat(cleaned);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  if (typeof value === "object") {
+    if (value === null) return null;
+    if (value.value !== undefined) {
+      return sanitizeNumericValue(value.value);
+    }
+    if (value.baseRate !== undefined) {
+      return sanitizeNumericValue(value.baseRate);
+    }
+  }
+
+  const parsed = Number(value);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+const resolveCategoryId = (value) => {
+  if (!value) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    if (value._id) return value._id;
+    if (value.id) return value.id;
+    if (value.categoryId) return resolveCategoryId(value.categoryId);
+  }
+  return value;
+};
+
+const sanitizeCategoryRates = (rates = []) => {
+  if (!Array.isArray(rates)) return [];
+
+  const seen = new Set();
+  const sanitized = [];
+
+  rates.forEach((rate = {}) => {
+    const resolvedId =
+      resolveCategoryId(rate.categoryId) || resolveCategoryId(rate.category);
+    const baseRate = sanitizeNumericValue(rate.baseRate);
+
+    if (!resolvedId || baseRate === null) {
+      return;
+    }
+
+    const idString = String(resolvedId);
+    if (seen.has(idString)) {
+      return;
+    }
+
+    seen.add(idString);
+    sanitized.push({
+      categoryId: resolvedId,
+      baseRate,
+    });
+  });
+
+  return sanitized;
+};
+
 class SupplierService {
   async createSupplier(data) {
     // Check for duplicate GSTIN
@@ -15,6 +86,10 @@ class SupplierService {
       if (!hasPrimary) {
         data.contactPersons[0].isPrimary = true;
       }
+    }
+
+    if (data.categoryRates) {
+      data.categoryRates = sanitizeCategoryRates(data.categoryRates);
     }
 
     const supplier = await Supplier.create(data);
@@ -44,35 +119,49 @@ class SupplierService {
       ];
     }
 
-    const page = parseInt(pagination.page) || 1;
-    const limit = parseInt(pagination.limit) || 10;
-    const skip = (page - 1) * limit;
+    const hasLimit = pagination.limit !== undefined && pagination.limit !== null;
+    const page = hasLimit ? parseInt(pagination.page) || 1 : 1;
+    const limit = hasLimit ? parseInt(pagination.limit) || 10 : null;
+    const skip = hasLimit && limit ? (page - 1) * limit : 0;
+
+    const supplierQuery = Supplier.find(query)
+      .populate("categories")
+      .populate("products")
+      .populate("categoryRates.categoryId", "name code")
+      .sort({ preferredSupplier: -1, name: 1 });
+
+    if (hasLimit && limit) {
+      supplierQuery.skip(skip).limit(limit);
+    }
 
     const [suppliers, total] = await Promise.all([
-      Supplier.find(query)
-        .populate("categories")
-        .populate("products")
-        .sort({ preferredSupplier: -1, name: 1 })
-        .skip(skip)
-        .limit(limit),
+      supplierQuery.exec(),
       Supplier.countDocuments(query),
     ]);
 
     return {
       suppliers,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-      },
+      pagination: hasLimit
+        ? {
+            page,
+            limit,
+            total,
+            pages: Math.ceil(total / limit),
+          }
+        : {
+            page: 1,
+            limit: total,
+            total,
+            pages: 1,
+          },
     };
   }
 
   async getSupplierById(id) {
     const supplier = await Supplier.findById(id)
       .populate("categories")
-      .populate("products");
+      .populate("products")
+      .populate("categoryRates.categoryId", "name code");
 
     if (!supplier) {
       throw new AppError("Supplier not found", 404);
@@ -82,9 +171,12 @@ class SupplierService {
   }
 
   async getSupplierByCode(code) {
-    const supplier = await Supplier.findOne({ supplierCode: code.toUpperCase() })
+    const supplier = await Supplier.findOne({
+      supplierCode: code.toUpperCase(),
+    })
       .populate("categories")
-      .populate("products");
+      .populate("products")
+      .populate("categoryRates.categoryId", "name code");
 
     if (!supplier) {
       throw new AppError("Supplier not found", 404);
@@ -106,10 +198,17 @@ class SupplierService {
       }
     }
 
+    if (updateData.categoryRates) {
+      updateData.categoryRates = sanitizeCategoryRates(updateData.categoryRates);
+    }
+
     const supplier = await Supplier.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
-    }).populate("categories products");
+    })
+      .populate("categories")
+      .populate("products")
+      .populate("categoryRates.categoryId", "name code");
 
     if (!supplier) {
       throw new AppError("Supplier not found", 404);
@@ -172,7 +271,9 @@ class SupplierService {
     const suppliers = await Supplier.find({
       products: productId,
       active: true,
-    }).sort({ preferredSupplier: -1, rating: -1 });
+    })
+      .populate("categoryRates.categoryId", "name code")
+      .sort({ preferredSupplier: -1, rating: -1 });
 
     return suppliers;
   }

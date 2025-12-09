@@ -2,6 +2,9 @@ module.exports = {
   // Document Status
   STATUS: {
     DRAFT: "Draft",
+    PENDING: "Pending",
+    PARTIAL: "Partial",
+    COMPLETE: "Complete",
     APPROVED: "Approved",
     POSTED: "Posted",
     CANCELLED: "Cancelled",
@@ -14,6 +17,13 @@ module.exports = {
     PAID: "Paid",
     UNPAID: "Unpaid",
     PARTIALLY_PAID: "PartiallyPaid",
+  },
+  
+  PURCHASE_ORDER_STATUS: {
+    DRAFT: "Draft",
+    PENDING: "Pending",
+    PARTIAL: "Partial",
+    COMPLETE: "Complete",
   },
 
   // Roll Status
