@@ -10,7 +10,7 @@ const rollSchema = new mongoose.Schema(
     batchId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Batch",
-      required: true,
+      default: null,
     },
     supplierId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -24,12 +24,12 @@ const rollSchema = new mongoose.Schema(
     },
     originalLengthMeters: {
       type: Number,
-      required: true,
-      min: 1,
+      default: 0,
+      min: 0,
     },
     currentLengthMeters: {
       type: Number,
-      required: true,
+      default: 0,
       min: 0,
     },
     gsm: String,
@@ -62,8 +62,8 @@ const rollSchema = new mongoose.Schema(
     // Barcode - Format: YYMM-SUP-BATCH-SEQ-CHECK
     barcode: {
       type: String,
-      unique: true,
-      required: true,
+      required: false, // optional; will auto-generate when data available
+      default: undefined, // avoid indexing nulls
     },
     // qrPayload: {
     //   type: Object, // Will store complete QR data
@@ -135,7 +135,15 @@ rollSchema.index({ status: 1 });
 rollSchema.index({ skuId: 1, status: 1 });
 rollSchema.index({ batchId: 1 });
 rollSchema.index({ supplierId: 1 });
-rollSchema.index({ barcode: 1 });
+// Allow multiple null/absent barcodes; enforce uniqueness only when present
+rollSchema.index(
+  { barcode: 1 },
+  {
+    name: "barcode_sparse_unique",
+    unique: true,
+    partialFilterExpression: { barcode: { $exists: true, $ne: null } },
+  }
+);
 rollSchema.index({ status: 1, inwardedAt: 1 }); // For unmapped aging
 rollSchema.index({ "allocationDetails.soLineId": 1 });
 
@@ -154,7 +162,8 @@ rollSchema.virtual("unmappedAgeInDays").get(function () {
 
 // Generate barcode before saving
 rollSchema.pre("save", async function (next) {
-  if (!this.barcode && this.isNew) {
+  // Auto-generate barcode only when we have supplier and batch info
+  if (!this.barcode && this.isNew && this.supplierId && this.batchId) {
     const date = new Date();
     const yymm = `${date.getFullYear().toString().slice(-2)}${(
       date.getMonth() + 1
@@ -164,11 +173,11 @@ rollSchema.pre("save", async function (next) {
 
     // Get supplier code
     const supplier = await mongoose.model("Supplier").findById(this.supplierId);
-    const supCode = supplier.supplierCode.substring(0, 3);
+    const supCode = supplier?.supplierCode?.substring(0, 3) || "SUP";
 
     // Get batch code
     const batch = await mongoose.model("Batch").findById(this.batchId);
-    const batchCode = batch.batchCode.substring(0, 4);
+    const batchCode = batch?.batchCode?.substring(0, 4) || "BCH";
 
     // Generate sequence
     const count = await this.constructor.countDocuments({

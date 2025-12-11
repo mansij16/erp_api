@@ -30,6 +30,7 @@ const salesOrderRoutes = require("./routes/salesOrderRoutes");
 const salesInvoiceRoutes = require("./routes/salesInvoiceRoutes");
 const voucherRoutes = require("./routes/voucherRoutes");
 const reportRoutes = require("./routes/reportRoutes");
+const Roll = require("./models/Roll");
 
 // Import error handler
 const globalErrorHandler = require("./middlewares/errorMiddleware");
@@ -110,6 +111,29 @@ mongoose
   })
   .then(() => {
     console.log("MongoDB connected successfully");
+
+    // Ensure barcode index is partial & unique only when present (drops legacy unique null index)
+    Roll.updateMany({ barcode: null }, { $unset: { barcode: "" } })
+      .catch(() => null)
+      .then(() =>
+        Roll.collection
+          .dropIndex("barcode_1")
+          .catch(() => null)
+          .then(() =>
+            Roll.collection.createIndex(
+              { barcode: 1 },
+              {
+                name: "barcode_sparse_unique",
+                unique: true,
+                partialFilterExpression: { barcode: { $type: "string" } },
+              }
+            )
+          )
+      )
+      .catch((err) =>
+        console.warn("Warning: could not ensure roll barcode index", err.message)
+      );
+
     if (process.env.SEED_DB === "true") {
       const seederPath = path.resolve(__dirname, "seeds", "seedMasterData.js");
       console.log("Starting database seeder:", seederPath);

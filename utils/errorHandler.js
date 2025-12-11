@@ -23,8 +23,13 @@ const handleValidationError = (err) => {
 };
 
 const handleDuplicateKeyError = (err) => {
-  const field = Object.keys(err.keyValue)[0];
-  return new AppError(`Duplicate value for ${field}`, 400, "DUPLICATE_ENTRY");
+  const keyValue = err.keyValue || {};
+  const field = Object.keys(keyValue)[0] || "value";
+  const value = keyValue[field];
+  const message = value
+    ? `Duplicate value for ${field}: ${value}`
+    : "Duplicate value found";
+  return new AppError(message, 400, "DUPLICATE_ENTRY");
 };
 
 const handleCastError = (err) => {

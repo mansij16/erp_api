@@ -56,10 +56,6 @@ const createGRN = handleAsyncErrors(async (req, res) => {
     throw new AppError("Purchase order not found", 404, "RESOURCE_NOT_FOUND");
   }
 
-  if (purchaseOrder.status !== "Approved") {
-    throw new AppError("Only approved purchase orders can receive GRN", 400, "INVALID_STATE_TRANSITION");
-  }
-
   // Generate GRN number
   const grnNumber = await numberingService.generateNumber("GRN", GRN);
 
@@ -73,8 +69,12 @@ const createGRN = handleAsyncErrors(async (req, res) => {
       throw new AppError(`PO line not found: ${line.poLineId}`, 400, "VALIDATION_ERROR");
     }
 
-    // Create rolls for received quantity
-    for (let i = 0; i < line.qtyReceived; i++) {
+    const qtyRolls = Number(line.qtyRolls ?? poLine.qtyRolls) || 0;
+    const lengthMetersPerRoll =
+      Number(line.lengthMetersPerRoll ?? poLine.lengthMetersPerRoll) || 0;
+
+    // Create rolls for received quantity (now based on qtyRolls from PO/UI)
+    for (let i = 0; i < qtyRolls; i++) {
       const rollNumber = numberingService.generateRollNumber(
         purchaseOrder.supplierId.toString(),
         "BATCH001", // TODO: Get from actual batch
@@ -90,7 +90,8 @@ const createGRN = handleAsyncErrors(async (req, res) => {
         gsm: poLine.gsm,
         qualityName: poLine.qualityName,
         widthInches: poLine.widthInches,
-        lengthMeters: 1000, // TODO: Get from SKU default or user input
+        originalLengthMeters: lengthMetersPerRoll || 0,
+        currentLengthMeters: lengthMetersPerRoll || 0,
         status: "Unmapped",
         purchaseOrderId: purchaseOrder._id,
       });
@@ -99,25 +100,21 @@ const createGRN = handleAsyncErrors(async (req, res) => {
     processedLines.push({
       poLineId: line.poLineId,
       skuId: poLine.skuId,
-      qtyOrdered: poLine.qtyRolls,
-      qtyReceived: line.qtyReceived,
-      qtyAccepted: line.qtyAccepted || line.qtyReceived,
-      qtyRejected: line.qtyRejected || 0,
-      qtyUnmapped: line.qtyReceived - (line.qtyAccepted || line.qtyReceived),
-      rollsCreated: [], // Will be populated after roll creation
+      skuCode: poLine.skuCode,
+      categoryName: poLine.categoryName,
+      gsm: poLine.gsm,
+      qualityName: poLine.qualityName,
+      widthInches: poLine.widthInches,
+      lengthMetersPerRoll: poLine.lengthMetersPerRoll,
+      qtyRolls: poLine.qtyRolls,
+      totalMeters: poLine.totalMeters,
+      ratePerRoll: poLine.ratePerRoll,
+      lineTotal: poLine.lineTotal,
     });
   }
 
   // Create rolls
   const createdRolls = await Roll.insertMany(rollsToCreate);
-
-  // Update processed lines with roll IDs
-  let rollIndex = 0;
-  processedLines.forEach((line) => {
-    const lineRolls = createdRolls.slice(rollIndex, rollIndex + line.qtyReceived);
-    line.rollsCreated = lineRolls.map((roll) => roll._id);
-    rollIndex += line.qtyReceived;
-  });
 
   const grn = await GRN.create({
     grnNumber,
@@ -127,13 +124,13 @@ const createGRN = handleAsyncErrors(async (req, res) => {
     supplierName: purchaseOrder.supplierName,
     lines: processedLines,
     notes,
-    createdBy: req.user._id,
+    createdBy: req.user ? req.user._id : undefined,
   });
 
   // Update purchase order received quantities
   for (const line of processedLines) {
     const poLine = purchaseOrder.lines.id(line.poLineId);
-    poLine.receivedQty += line.qtyReceived;
+    poLine.receivedQty += Number(line.qtyRolls) || 0;
   }
   await purchaseOrder.save();
 
@@ -160,7 +157,7 @@ const postGRN = handleAsyncErrors(async (req, res) => {
   }
 
   grn.status = "Posted";
-  grn.postedBy = req.user._id;
+  grn.postedBy = req.user ? req.user._id : undefined;
   grn.postedAt = new Date();
   await grn.save();
 
