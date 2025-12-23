@@ -64,6 +64,20 @@ const userSchema = new mongoose.Schema(
     passwordChangedAt: Date,
     passwordResetToken: String,
     passwordResetExpires: Date,
+    address: {
+      line1: { type: String, required: true },
+      line2: String,
+      city: { type: String, required: true },
+      pincode: { type: String, required: true },
+    },
+    state: {
+      type: String,
+      required: true,
+    },  
+    country: {
+      type: String,
+      required: true,
+    },
   },
   {
     timestamps: true,

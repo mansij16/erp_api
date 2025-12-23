@@ -45,7 +45,6 @@ const purchaseInvoiceSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
-    dueDate: Date,
     lines: [
       {
         poLineId: {

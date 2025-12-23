@@ -6,6 +6,7 @@ const Quality = require("../models/Quality");
 const Product = require("../models/Product");
 const SKU = require("../models/SKU");
 const Supplier = require("../models/Supplier");
+const User = require("../models/User");
 const CustomerGroup = require("../models/CustomerGroup");
 const Customer = require("../models/Customer");
 const CustomerRate = require("../models/CustomerRate");
@@ -59,6 +60,36 @@ const seedData = async () => {
       console.log("Existing data cleared");
     } catch (error) {
       console.log("Error clearing data (may not exist yet):", error.message);
+    }
+
+    // Ensure there is at least one SuperAdmin user
+    try {
+      const existingAdmin = await User.findOne({ username: "admin" });
+      if (existingAdmin) {
+        console.log("Default admin user already exists:", existingAdmin.email);
+      } else {
+        const adminUser = new User({
+          username: "admin",
+          email: "admin@gmail.com",
+          password: process.env.SEED_ADMIN_PASSWORD || "Admin@123",
+          role: "SuperAdmin",
+          address: {
+            line1: "123 Main St",
+            line2: "Apt 1",
+            city: "Surat",
+            pincode: "395002",
+          },
+          state: "Gujarat",
+          country: "India",
+        });
+        await adminUser.save();
+        console.log(
+          "Default admin user created: admin /",
+          process.env.SEED_ADMIN_PASSWORD ? "****(from env)****" : "Admin@123"
+        );
+      }
+    } catch (error) {
+      console.error("Error ensuring default admin user:", error.message);
     }
 
     // Seed Categories (align with Category model: name + code + hsnCode)

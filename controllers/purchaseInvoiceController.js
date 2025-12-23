@@ -48,14 +48,8 @@ const getPurchaseInvoice = handleAsyncErrors(async (req, res) => {
 
 // Create purchase invoice
 const createPurchaseInvoice = handleAsyncErrors(async (req, res) => {
-  const {
-    supplierInvoiceNumber,
-    purchaseOrderId,
-    lines,
-    landedCosts,
-    notes,
-    dueDate,
-  } = req.body;
+  const { supplierInvoiceNumber, purchaseOrderId, lines, landedCosts, notes } =
+    req.body;
 
   // Verify purchase order exists
   const purchaseOrder = await PurchaseOrder.findById(purchaseOrderId);
@@ -93,7 +87,6 @@ const createPurchaseInvoice = handleAsyncErrors(async (req, res) => {
     supplierId: purchaseOrder.supplierId,
     supplierName: purchaseOrder.supplierName,
     date: new Date(),
-    dueDate,
     lines: processedLines,
     subtotal,
     taxAmount,
