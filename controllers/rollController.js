@@ -1,5 +1,7 @@
 const rollService = require("../services/rollService");
 const catchAsync = require("../utils/catchAsync");
+const Roll = require("../models/Roll");
+const AppError = require("../utils/AppError");
 
 class RollController {
   createRolls = catchAsync(async (req, res) => {
@@ -32,9 +34,14 @@ class RollController {
 
     const result = await rollService.getAllRolls(filters, pagination);
 
+    const formattedRolls = (result.rolls || []).map((roll) =>
+      this.formatRollResponse(roll)
+    );
+
     res.status(200).json({
       success: true,
-      ...result,
+      rolls: formattedRolls,
+      pagination: result.pagination,
     });
   });
 
@@ -43,7 +50,105 @@ class RollController {
 
     res.status(200).json({
       success: true,
-      data: roll,
+      data: this.formatRollResponse(roll),
+    });
+  });
+
+  getRoll = catchAsync(async (req, res) => {
+    const roll = await Roll.findById(req.params.id)
+      .populate("skuId")
+      .populate("supplierId")
+      .populate("batchId");
+
+    if (!roll) {
+      throw new AppError("Roll not found", 404);
+    }
+
+    const formatted = this.formatRollResponse(roll);
+
+    res.status(200).json({
+      success: true,
+      data: formatted,
+    });
+  });
+
+  updateRoll = catchAsync(async (req, res) => {
+    const roll = await Roll.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    })
+      .populate("skuId")
+      .populate("supplierId")
+      .populate("batchId");
+
+    if (!roll) {
+      throw new AppError("Roll not found", 404);
+    }
+
+    res.status(200).json({
+      success: true,
+      data: this.formatRollResponse(roll),
+    });
+  });
+
+  getRollHistory = catchAsync(async (req, res) => {
+    const roll = await Roll.findById(req.params.id);
+
+    if (!roll) {
+      throw new AppError("Roll not found", 404);
+    }
+
+    const history = [
+      {
+        action: "Created",
+        timestamp: roll.createdAt,
+        details: roll.rollNumber,
+      },
+    ];
+
+    if (roll.mappedAt) {
+      history.push({
+        action: "Mapped",
+        timestamp: roll.mappedAt,
+        details: `Status: ${roll.status}`,
+      });
+    }
+
+    if (roll.allocationDetails?.allocatedAt) {
+      history.push({
+        action: "Allocated",
+        timestamp: roll.allocationDetails.allocatedAt,
+        details: `SO Line: ${roll.allocationDetails.soLineId}`,
+      });
+    }
+
+    if (roll.dispatchDetails?.dispatchedAt) {
+      history.push({
+        action: "Dispatched",
+        timestamp: roll.dispatchDetails.dispatchedAt,
+        details: `DC: ${roll.dispatchDetails.dcId}`,
+      });
+    }
+
+    if (roll.returnDetails?.returnedAt) {
+      history.push({
+        action: "Returned",
+        timestamp: roll.returnDetails.returnedAt,
+        details: roll.returnDetails.returnReason,
+      });
+    }
+
+    if (roll.status === "Scrap") {
+      history.push({
+        action: "Scrapped",
+        timestamp: roll.updatedAt || roll.createdAt,
+        details: roll.notes,
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: history,
     });
   });
 
@@ -146,6 +251,23 @@ class RollController {
       data: unmapped,
     });
   });
+
+  formatRollResponse(roll) {
+    const obj = roll.toObject({ virtuals: true });
+    return {
+      ...obj,
+      lengthMeters: obj.currentLengthMeters ?? obj.originalLengthMeters,
+      supplierName:
+        obj.supplierId?.supplierName ||
+        obj.supplierId?.name ||
+        obj.supplierId?.companyName ||
+        obj.supplierId?.supplierCode,
+      batchCode: obj.batchId?.batchCode || obj.batchId?.code,
+      landedCostPerRoll: obj.landedCostPerMeter
+        ? obj.landedCostPerMeter * (obj.currentLengthMeters || 0)
+        : undefined,
+    };
+  }
 }
 
 module.exports = new RollController();

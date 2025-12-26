@@ -3,6 +3,7 @@ const Customer = require("../models/Customer");
 const SKU = require("../models/SKU");
 const numberingService = require("../services/numberingService");
 const pricingService = require("../services/pricingService");
+const { STATUS } = require("../config/constants");
 const { handleAsyncErrors, AppError } = require("../utils/errorHandler");
 
 // Get all sales orders
@@ -10,7 +11,16 @@ const getSalesOrders = handleAsyncErrors(async (req, res) => {
   const { status, customerId, dateFrom, dateTo } = req.query;
 
   const filter = {};
-  if (status) filter.status = status;
+  if (status) {
+    const statusArray = Array.isArray(status)
+      ? status
+      : String(status)
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+    filter.status =
+      statusArray.length > 1 ? { $in: statusArray } : statusArray[0];
+  }
   if (customerId) filter.customerId = customerId;
   if (dateFrom || dateTo) {
     filter.date = {};
@@ -78,7 +88,7 @@ const getSalesOrder = handleAsyncErrors(async (req, res) => {
 
 // Create sales order with pricing calculation
 const createSalesOrder = handleAsyncErrors(async (req, res) => {
-  const { customerId, lines, notes } = req.body;
+  const { customerId, lines, notes, discountPercent = 0, date } = req.body;
 
   // Verify customer exists and is not blocked
   const customer = await Customer.findById(customerId);
@@ -143,6 +153,8 @@ const createSalesOrder = handleAsyncErrors(async (req, res) => {
     "name code"
   );
 
+  const discountAmount = (subtotal * (Number(discountPercent) || 0)) / 100;
+
   const salesOrder = await SalesOrder.create({
     soNumber,
     customerId,
@@ -151,10 +163,13 @@ const createSalesOrder = handleAsyncErrors(async (req, res) => {
       customerWithGroup.customerGroupId?.name ||
       customerWithGroup.group ||
       null,
+    date: date ? new Date(date) : undefined,
     lines: processedLines,
     subtotal,
+    discountPercent: Number(discountPercent) || 0,
+    discountAmount,
     taxAmount,
-    total: subtotal + taxAmount,
+    total: subtotal - discountAmount + taxAmount,
     creditCheckPassed: false, // Will be updated on confirmation
     notes,
     createdBy: req.user ? req.user._id : undefined,
@@ -169,6 +184,113 @@ const createSalesOrder = handleAsyncErrors(async (req, res) => {
     .populate("lines.skuId", "skuCode categoryName gsm qualityName widthInches");
 
   res.status(201).json({
+    success: true,
+    data: populatedOrder,
+  });
+});
+
+// Update sales order (draft only)
+const updateSalesOrder = handleAsyncErrors(async (req, res) => {
+  const { customerId, lines = [], notes, discountPercent = 0, date } =
+    req.body;
+  const salesOrder = await SalesOrder.findById(req.params.id);
+
+  if (!salesOrder) {
+    throw new AppError("Sales order not found", 404, "RESOURCE_NOT_FOUND");
+  }
+
+  if (salesOrder.status !== STATUS.DRAFT) {
+    throw new AppError(
+      "Only draft sales orders can be updated",
+      400,
+      "INVALID_STATE_TRANSITION"
+    );
+  }
+
+  const customer = await Customer.findById(customerId);
+  if (!customer) {
+    throw new AppError("Customer not found", 404, "RESOURCE_NOT_FOUND");
+  }
+
+  let subtotal = 0;
+  let taxAmount = 0;
+  const processedLines = [];
+
+  for (const line of lines) {
+    const sku = await SKU.findById(line.skuId);
+    if (!sku) {
+      throw new AppError(`SKU not found: ${line.skuId}`, 404, "RESOURCE_NOT_FOUND");
+    }
+
+    const pricing = pricingService.calculateSalesPricing(
+      customer.baseRate44,
+      sku.widthInches,
+      line.lengthMetersPerRoll,
+      line.qtyRolls,
+      line.overrideRatePerRoll
+    );
+
+    const lineTotal = pricing.lineTotal;
+    const lineTax = lineTotal * (sku.taxRate / 100);
+
+    subtotal += lineTotal;
+    taxAmount += lineTax;
+
+    processedLines.push({
+      skuId: line.skuId,
+      categoryName: sku.categoryName,
+      gsm: sku.gsm,
+      qualityName: sku.qualityName,
+      widthInches: sku.widthInches,
+      lengthMetersPerRoll: line.lengthMetersPerRoll,
+      qtyRolls: line.qtyRolls,
+      totalMeters: line.qtyRolls * line.lengthMetersPerRoll,
+      derivedRatePerRoll: pricing.derivedRatePerRoll,
+      overrideRatePerRoll: line.overrideRatePerRoll,
+      finalRatePerRoll: pricing.finalRatePerRoll,
+      taxRate: sku.taxRate,
+      lineTotal: lineTotal + lineTax,
+    });
+  }
+
+  const discountAmount = (subtotal * (Number(discountPercent) || 0)) / 100;
+
+  salesOrder.customerId = customerId;
+  salesOrder.customerName = customer.companyName;
+  salesOrder.date = date ? new Date(date) : salesOrder.date;
+  salesOrder.lines = processedLines;
+  salesOrder.subtotal = subtotal;
+  salesOrder.discountPercent = Number(discountPercent) || 0;
+  salesOrder.discountAmount = discountAmount;
+  salesOrder.taxAmount = taxAmount;
+  salesOrder.total = subtotal - discountAmount + taxAmount;
+  salesOrder.notes = notes;
+  salesOrder.creditCheckNotes = req.body.creditCheckNotes;
+  salesOrder.creditCheckPassed =
+    req.body.creditCheckPassed ?? salesOrder.creditCheckPassed;
+
+  await salesOrder.save();
+
+  const populatedOrder = await SalesOrder.findById(salesOrder._id)
+    .populate({
+      path: "customerId",
+      select: "companyName customerCode",
+      populate: { path: "customerGroupId", select: "name code" },
+    })
+    .populate({
+      path: "lines.skuId",
+      select: "skuCode categoryName gsm qualityName widthInches productId",
+      populate: {
+        path: "productId",
+        populate: [
+          { path: "categoryId", select: "name" },
+          { path: "gsmId", select: "value label" },
+          { path: "qualityId", select: "name" },
+        ],
+      },
+    });
+
+  res.json({
     success: true,
     data: populatedOrder,
   });
@@ -193,6 +315,63 @@ const confirmSalesOrder = handleAsyncErrors(async (req, res) => {
   salesOrder.creditCheckPassed = creditCheckPassed;
   salesOrder.confirmedBy = req.user ? req.user._id : undefined;
   salesOrder.confirmedAt = new Date();
+  await salesOrder.save();
+
+  res.json({
+    success: true,
+    data: salesOrder,
+  });
+});
+
+// Cancel sales order
+const cancelSalesOrder = handleAsyncErrors(async (req, res) => {
+  const salesOrder = await SalesOrder.findById(req.params.id);
+
+  if (!salesOrder) {
+    throw new AppError("Sales order not found", 404, "RESOURCE_NOT_FOUND");
+  }
+
+  if (salesOrder.status === STATUS.CANCELLED) {
+    return res.json({ success: true, data: salesOrder });
+  }
+
+  salesOrder.status = STATUS.CANCELLED;
+  salesOrder.onHoldReason = req.body?.reason;
+  await salesOrder.save();
+
+  res.json({
+    success: true,
+    data: salesOrder,
+  });
+});
+
+// Put sales order on hold
+const holdSalesOrder = handleAsyncErrors(async (req, res) => {
+  const salesOrder = await SalesOrder.findById(req.params.id);
+
+  if (!salesOrder) {
+    throw new AppError("Sales order not found", 404, "RESOURCE_NOT_FOUND");
+  }
+
+  salesOrder.status = STATUS.ON_HOLD;
+  salesOrder.onHoldReason = req.body?.reason;
+  await salesOrder.save();
+
+  res.json({
+    success: true,
+    data: salesOrder,
+  });
+});
+
+// Close sales order
+const closeSalesOrder = handleAsyncErrors(async (req, res) => {
+  const salesOrder = await SalesOrder.findById(req.params.id);
+
+  if (!salesOrder) {
+    throw new AppError("Sales order not found", 404, "RESOURCE_NOT_FOUND");
+  }
+
+  salesOrder.status = STATUS.CLOSED;
   await salesOrder.save();
 
   res.json({
@@ -255,6 +434,10 @@ module.exports = {
   getSalesOrders,
   getSalesOrder,
   createSalesOrder,
+  updateSalesOrder,
   confirmSalesOrder,
+  cancelSalesOrder,
+  holdSalesOrder,
+  closeSalesOrder,
   calculatePricing,
 };
