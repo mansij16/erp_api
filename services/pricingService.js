@@ -5,6 +5,39 @@ const AppError = require("../utils/AppError");
 
 class PricingService {
   /**
+   * Lightweight sales pricing calculation given base rate and dimensions.
+   * Mirrors UI logic (44" benchmark -> derived, final, line total).
+   */
+  calculateSalesPricing(
+    baseRate44,
+    widthInches,
+    lengthMetersPerRoll,
+    qtyRolls,
+    overrideRatePerRoll
+  ) {
+    const width = Number(widthInches) || 0;
+    const qty = Number(qtyRolls) || 0;
+    const length = Number(lengthMetersPerRoll) || 0;
+    const base = Number(baseRate44) || 0;
+
+    const derivedRatePerRoll =
+      width > 0 ? Math.round(base * (width / 44)) : 0;
+    const finalRatePerRoll =
+      overrideRatePerRoll !== undefined && overrideRatePerRoll !== null
+        ? Number(overrideRatePerRoll) || 0
+        : derivedRatePerRoll;
+
+    const lineTotal = finalRatePerRoll * qty; // tax handled by caller
+
+    return {
+      derivedRatePerRoll,
+      finalRatePerRoll,
+      lineTotal,
+      totalMeters: length * qty,
+    };
+  }
+
+  /**
    * Calculate price based on 44" benchmark
    */
   async calculatePrice(

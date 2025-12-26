@@ -24,6 +24,18 @@ const getSalesOrders = handleAsyncErrors(async (req, res) => {
       select: "companyName customerCode",
       populate: { path: "customerGroupId", select: "name code" },
     })
+    .populate({
+      path: "lines.skuId",
+      select: "skuCode categoryName gsm qualityName widthInches productId",
+      populate: {
+        path: "productId",
+        populate: [
+          { path: "categoryId", select: "name" },
+          { path: "gsmId", select: "value label" },
+          { path: "qualityId", select: "name" },
+        ],
+      },
+    })
     .sort({ createdAt: -1 });
 
   res.json({
@@ -41,7 +53,18 @@ const getSalesOrder = handleAsyncErrors(async (req, res) => {
       select: "companyName customerCode creditPolicy baseRate44",
       populate: { path: "customerGroupId", select: "name code" },
     })
-    .populate("lines.skuId", "skuCode categoryName gsm qualityName widthInches");
+    .populate({
+      path: "lines.skuId",
+      select: "skuCode categoryName gsm qualityName widthInches productId",
+      populate: {
+        path: "productId",
+        populate: [
+          { path: "categoryId", select: "name" },
+          { path: "gsmId", select: "value label" },
+          { path: "qualityId", select: "name" },
+        ],
+      },
+    });
 
   if (!salesOrder) {
     throw new AppError("Sales order not found", 404, "RESOURCE_NOT_FOUND");

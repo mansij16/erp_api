@@ -2,6 +2,17 @@ const rollService = require("../services/rollService");
 const catchAsync = require("../utils/catchAsync");
 
 class RollController {
+  createRolls = catchAsync(async (req, res) => {
+    const rolls = req.body.rolls || req.body;
+    const created = await rollService.createManualRolls(rolls);
+
+    res.status(201).json({
+      success: true,
+      message: `${created.length} roll(s) created`,
+      data: created,
+    });
+  });
+
   getAllRolls = catchAsync(async (req, res) => {
     const filters = {
       status: req.query.status,

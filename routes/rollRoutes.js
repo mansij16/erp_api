@@ -10,6 +10,7 @@ router.get("/", rollController.getAllRolls);
 router.get("/summary", rollController.getInventorySummary);
 router.get("/unmapped", rollController.getUnmappedRolls);
 router.get("/barcode/:barcode", rollController.getRollByBarcode);
+router.post("/", rollController.createRolls);
 
 // Warehouse staff routes
 // router.use(authorize(["admin", "warehouse_staff", "inventory_manager"]));

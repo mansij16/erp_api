@@ -4,6 +4,7 @@ const SKU = require("../models/SKU");
 const Product = require("../models/Product");
 const AppError = require("../utils/AppError");
 const mongoose = require("mongoose");
+const numberingService = require("./numberingService");
 
 class RollService {
   async createRollsFromGRN(grnData, session = null) {
@@ -156,6 +157,78 @@ class RollService {
     } finally {
       session.endSession();
     }
+  }
+
+  async createManualRolls(rollsPayload = []) {
+    if (!Array.isArray(rollsPayload) || !rollsPayload.length) {
+      throw new AppError("No rolls provided", 400, "VALIDATION_ERROR");
+    }
+
+    const isValidObjectId = (val) =>
+      mongoose.Types.ObjectId.isValid(val?.toString());
+
+    const prepared = [];
+    for (const [index, roll] of rollsPayload.entries()) {
+      const supplierId = roll.supplierId;
+      if (!supplierId) {
+        throw new AppError("supplierId is required for roll creation", 400, "VALIDATION_ERROR");
+      }
+
+      const widthInches = Number(roll.widthInches);
+      if (![24, 36, 44, 63].includes(widthInches)) {
+        throw new AppError(
+          `widthInches must be one of 24, 36, 44, 63 (got ${roll.widthInches})`,
+          400,
+          "VALIDATION_ERROR"
+        );
+      }
+
+      const lengthMeters = Number(roll.lengthMeters) || Number(roll.originalLengthMeters) || 0;
+      const currentLengthMeters = Number(roll.currentLengthMeters) || lengthMeters;
+
+      let normalizedSkuId = null;
+      let normalizedSkuCode = roll.skuCode;
+
+      if (roll.skuId) {
+        if (isValidObjectId(roll.skuId)) {
+          normalizedSkuId = roll.skuId;
+        } else {
+          normalizedSkuCode = roll.skuCode || roll.skuId;
+        }
+      }
+
+      const rollNumber =
+        roll.rollNumber ||
+        numberingService.generateRollNumber(
+          supplierId.toString(),
+          "MANUAL",
+          Date.now() + index
+        );
+
+      prepared.push({
+        rollNumber,
+        skuId: normalizedSkuId,
+        skuCode: normalizedSkuCode,
+        categoryName: roll.categoryName,
+        qualityName: roll.qualityName,
+        gsm: roll.gsm,
+        supplierId,
+        batchId: roll.batchId || null,
+        widthInches,
+        originalLengthMeters: lengthMeters,
+        currentLengthMeters,
+        status: roll.status || "Unmapped",
+        baseCostPerMeter: roll.baseCostPerMeter || 0,
+        landedCostPerMeter: roll.landedCostPerMeter || 0,
+        totalLandedCost: roll.totalLandedCost || 0,
+        barcode: roll.barcode,
+        grnId: roll.grnId,
+        poLineId: roll.poLineId,
+      });
+    }
+
+    const created = await Roll.insertMany(prepared);
+    return created;
   }
 
   async getAllRolls(filters = {}, pagination = {}) {

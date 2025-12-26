@@ -48,8 +48,23 @@ const getPurchaseInvoice = handleAsyncErrors(async (req, res) => {
 
 // Create purchase invoice
 const createPurchaseInvoice = handleAsyncErrors(async (req, res) => {
-  const { supplierInvoiceNumber, purchaseOrderId, lines, landedCosts, notes } =
-    req.body;
+  const {
+    supplierInvoiceNumber,
+    supplierChallanNumber,
+    purchaseOrderId,
+    lines = [],
+    landedCosts = [],
+    notes,
+    lrNumber,
+    lrDate,
+    caseNumber,
+    hsnCode,
+    gstMode = "intra",
+    sgst,
+    cgst,
+    igst,
+    date,
+  } = req.body;
 
   // Verify purchase order exists
   const purchaseOrder = await PurchaseOrder.findById(purchaseOrderId);
@@ -62,31 +77,91 @@ const createPurchaseInvoice = handleAsyncErrors(async (req, res) => {
 
   // Process lines
   let subtotal = 0;
-  let taxAmount = 0;
+  let computedLineTax = 0;
 
-  const processedLines = lines.map((line) => {
-    const lineTotal = line.qtyRolls * line.ratePerRoll;
-    const lineTax = lineTotal * (line.taxRate / 100);
+  const processedLines = (lines || []).map((line) => {
+    const qty = Number(line.qtyRolls) || 0;
+    const rate = Number(line.ratePerRoll) || 0;
+    const taxRate = Number(line.taxRate ?? 0) || 0;
+    const lengthMetersPerRoll = Number(line.lengthMetersPerRoll) || 0;
+    const inwardRolls = Number(line.inwardRolls) || 0;
+    const inwardMeters =
+      Number(line.inwardMeters) || inwardRolls * lengthMetersPerRoll || 0;
+    const totalMeters =
+      Number(line.totalMeters) || (qty || 0) * (lengthMetersPerRoll || 0);
 
-    subtotal += lineTotal;
-    taxAmount += lineTax;
+    const lineBaseTotal = qty * rate;
+    const lineTax = lineBaseTotal * (taxRate / 100);
+
+    subtotal += lineBaseTotal;
+    computedLineTax += lineTax;
 
     return {
       ...line,
-      lineTotal: lineTotal + lineTax,
+      poLineId: line.poLineId,
+      poId: line.poId,
+      poNumber: line.poNumber,
+      skuId: line.skuId,
+      skuCode: line.skuCode,
+      categoryName: line.categoryName,
+      qualityName: line.qualityName,
+      gsm: line.gsm,
+      widthInches: line.widthInches,
+      lengthMetersPerRoll,
+      qtyRolls: qty,
+      ratePerRoll: rate,
+      taxRate,
+      totalMeters,
+      inwardRolls,
+      inwardMeters,
+      lineTotal: lineBaseTotal + lineTax,
     };
   });
 
+  // Tax amounts
+  const normalizedSGST = sgst !== undefined ? Number(sgst) || 0 : null;
+  const normalizedCGST = cgst !== undefined ? Number(cgst) || 0 : null;
+  const normalizedIGST = igst !== undefined ? Number(igst) || 0 : null;
+
+  let sgstAmount = normalizedSGST;
+  let cgstAmount = normalizedCGST;
+  let igstAmount = normalizedIGST;
+
+  if (
+    sgstAmount === null ||
+    cgstAmount === null ||
+    igstAmount === null
+  ) {
+    const isInter = gstMode === "inter";
+    sgstAmount = isInter ? 0 : subtotal * 0.09;
+    cgstAmount = isInter ? 0 : subtotal * 0.09;
+    igstAmount = isInter ? subtotal * 0.18 : 0;
+  }
+
+  const taxAmount = (sgstAmount || 0) + (cgstAmount || 0) + (igstAmount || 0);
+
   // Calculate landed costs
-  const totalLandedCost = landedCosts.reduce((sum, cost) => sum + cost.amount, 0);
+  const totalLandedCost = (landedCosts || []).reduce(
+    (sum, cost) => sum + (Number(cost.amount) || 0),
+    0
+  );
 
   const purchaseInvoice = await PurchaseInvoice.create({
     piNumber,
     supplierInvoiceNumber,
+    supplierChallanNumber,
     purchaseOrderId,
     supplierId: purchaseOrder.supplierId,
     supplierName: purchaseOrder.supplierName,
-    date: new Date(),
+    date: date ? new Date(date) : new Date(),
+    lrNumber,
+    lrDate: lrDate ? new Date(lrDate) : undefined,
+    caseNumber,
+    hsnCode,
+    gstMode,
+    sgst: sgstAmount,
+    cgst: cgstAmount,
+    igst: igstAmount,
     lines: processedLines,
     subtotal,
     taxAmount,
@@ -94,7 +169,8 @@ const createPurchaseInvoice = handleAsyncErrors(async (req, res) => {
     landedCosts,
     totalLandedCost,
     grandTotal: subtotal + taxAmount + totalLandedCost,
-    createdBy: req.user._id,
+    createdBy: req.user?._id || undefined,
+    notes,
   });
 
   const populatedInvoice = await PurchaseInvoice.findById(purchaseInvoice._id)
@@ -144,7 +220,7 @@ const postPurchaseInvoice = handleAsyncErrors(async (req, res) => {
   }
 
   purchaseInvoice.status = "Posted";
-  purchaseInvoice.postedBy = req.user._id;
+  purchaseInvoice.postedBy = req.user?._id || undefined;
   purchaseInvoice.postedAt = new Date();
   await purchaseInvoice.save();
 

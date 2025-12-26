@@ -4,10 +4,11 @@ const AppError = require("../utils/AppError");
 
 const PRODUCT_POPULATE = {
   path: "productId",
+  select: "categoryId gsmId qualityId defaultLengthMeters taxRate productCode productAlias",
   populate: [
-    { path: "category" },
-    { path: "gsm" },
-    { path: "quality" },
+    { path: "categoryId", select: "name" },
+    { path: "gsmId", select: "name" },
+    { path: "qualityId", select: "name" },
   ],
 };
 

@@ -2,6 +2,12 @@ const mongoose = require("mongoose");
 
 const rollSchema = new mongoose.Schema(
   {
+    rollNumber: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+    },
     skuId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "SKU",
@@ -17,6 +23,9 @@ const rollSchema = new mongoose.Schema(
       ref: "Supplier",
       required: true,
     },
+    skuCode: String,
+    categoryName: String,
+    qualityName: String,
     widthInches: {
       type: Number,
       required: true,

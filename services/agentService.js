@@ -25,7 +25,7 @@ const normalizeCommissionPayload = (commission) => {
   }
 
   const payload = {
-    customer: commission.customer,
+    customer: normalizeAgentId(commission.customer) || commission.customer,
     commissionType: commission.commissionType,
     amountPerMeter: undefined,
     percentage: undefined,
@@ -42,6 +42,36 @@ const normalizeCommissionPayload = (commission) => {
   }
 
   return payload;
+};
+
+const normalizeAgentId = (rawId) => {
+  if (!rawId) return null;
+
+  // If it's a plain string, return trimmed
+  if (typeof rawId === "string") {
+    const trimmed = rawId.trim();
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return parsed._id || parsed.id || null;
+      } catch (err) {
+        // fall through
+      }
+    }
+    return trimmed;
+  }
+
+  // If it's an object, try common id keys
+  if (typeof rawId === "object") {
+    const candidate = rawId._id || rawId.id || rawId.value;
+    if (candidate) return candidate.toString();
+    if (typeof rawId.toString === "function") {
+      const str = rawId.toString();
+      return str && str !== "[object Object]" ? str : null;
+    }
+  }
+
+  return null;
 };
 
 const buildHistoryRecord = (commission, effectiveFrom, notes) => {
@@ -220,11 +250,13 @@ class AgentService {
   }
 
   async getAgentById(id) {
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    const normalizedId = normalizeAgentId(id);
+
+    if (!normalizedId || !mongoose.Types.ObjectId.isValid(normalizedId)) {
       throw new AppError("Invalid agent id", 400);
     }
 
-    const agent = await populateAgentQuery(Agent.findById(id));
+    const agent = await populateAgentQuery(Agent.findById(normalizedId));
 
     if (!agent) {
       throw new AppError("Agent not found", 404);
@@ -250,7 +282,9 @@ class AgentService {
   }
 
   async updateAgent(id, updateData) {
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    const normalizedId = normalizeAgentId(id);
+
+    if (!normalizedId || !mongoose.Types.ObjectId.isValid(normalizedId)) {
       throw new AppError("Invalid agent id", 400);
     }
 
@@ -258,7 +292,7 @@ class AgentService {
     immutableFields.forEach((field) => delete updateData[field]);
 
     const agent = await populateAgentQuery(
-      Agent.findByIdAndUpdate(id, updateData, {
+      Agent.findByIdAndUpdate(normalizedId, updateData, {
         new: true,
         runValidators: true,
       })
@@ -272,11 +306,13 @@ class AgentService {
   }
 
   async toggleAgentStatus(id) {
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    const normalizedId = normalizeAgentId(id);
+
+    if (!normalizedId || !mongoose.Types.ObjectId.isValid(normalizedId)) {
       throw new AppError("Invalid agent id", 400);
     }
 
-    const agent = await Agent.findById(id);
+    const agent = await Agent.findById(normalizedId);
 
     if (!agent) {
       throw new AppError("Agent not found", 404);
@@ -289,9 +325,17 @@ class AgentService {
   }
 
   async upsertPartyCommission(agentId, commissionData, options = {}) {
+    const normalizedAgentId = normalizeAgentId(agentId);
+    if (
+      !normalizedAgentId ||
+      !mongoose.Types.ObjectId.isValid(normalizedAgentId)
+    ) {
+      throw new AppError("Invalid agent id", 400);
+    }
+
     validateCommissionPayload(commissionData);
 
-    const agent = await Agent.findById(agentId);
+    const agent = await Agent.findById(normalizedAgentId);
 
     if (!agent) {
       throw new AppError("Agent not found", 404);
@@ -373,7 +417,11 @@ class AgentService {
   }
 
   async removePartyCommission(agentId, customerId, options = {}) {
-    if (!mongoose.Types.ObjectId.isValid(agentId)) {
+    const normalizedAgentId = normalizeAgentId(agentId);
+    if (
+      !normalizedAgentId ||
+      !mongoose.Types.ObjectId.isValid(normalizedAgentId)
+    ) {
       throw new AppError("Invalid agent id", 400);
     }
 
@@ -381,7 +429,7 @@ class AgentService {
       throw new AppError("Invalid customer id", 400);
     }
 
-    const agent = await Agent.findById(agentId);
+    const agent = await Agent.findById(normalizedAgentId);
 
     if (!agent) {
       throw new AppError("Agent not found", 404);
@@ -419,7 +467,11 @@ class AgentService {
   }
 
   async addCommissionPayout(agentId, payoutData) {
-    if (!mongoose.Types.ObjectId.isValid(agentId)) {
+    const normalizedAgentId = normalizeAgentId(agentId);
+    if (
+      !normalizedAgentId ||
+      !mongoose.Types.ObjectId.isValid(normalizedAgentId)
+    ) {
       throw new AppError("Invalid agent id", 400);
     }
 
@@ -427,7 +479,7 @@ class AgentService {
       throw new AppError("Payout amount is required", 400);
     }
 
-    const agent = await Agent.findById(agentId);
+    const agent = await Agent.findById(normalizedAgentId);
 
     if (!agent) {
       throw new AppError("Agent not found", 404);
@@ -453,7 +505,11 @@ class AgentService {
   }
 
   async updateCommissionPayout(agentId, payoutId, updateData = {}) {
-    if (!mongoose.Types.ObjectId.isValid(agentId)) {
+    const normalizedAgentId = normalizeAgentId(agentId);
+    if (
+      !normalizedAgentId ||
+      !mongoose.Types.ObjectId.isValid(normalizedAgentId)
+    ) {
       throw new AppError("Invalid agent id", 400);
     }
 
@@ -462,7 +518,7 @@ class AgentService {
     }
 
     const agent = await Agent.findOne({
-      _id: agentId,
+      _id: normalizedAgentId,
       "commissionPayouts.payoutId": payoutId,
     });
 
@@ -491,7 +547,11 @@ class AgentService {
   }
 
   async addKycDocument(agentId, documentData) {
-    if (!mongoose.Types.ObjectId.isValid(agentId)) {
+    const normalizedAgentId = normalizeAgentId(agentId);
+    if (
+      !normalizedAgentId ||
+      !mongoose.Types.ObjectId.isValid(normalizedAgentId)
+    ) {
       throw new AppError("Invalid agent id", 400);
     }
 
@@ -499,7 +559,7 @@ class AgentService {
       throw new AppError("KYC document fileName and fileUrl are required", 400);
     }
 
-    const agent = await Agent.findById(agentId);
+    const agent = await Agent.findById(normalizedAgentId);
 
     if (!agent) {
       throw new AppError("Agent not found", 404);
@@ -519,7 +579,11 @@ class AgentService {
   }
 
   async removeKycDocument(agentId, documentId) {
-    if (!mongoose.Types.ObjectId.isValid(agentId)) {
+    const normalizedAgentId = normalizeAgentId(agentId);
+    if (
+      !normalizedAgentId ||
+      !mongoose.Types.ObjectId.isValid(normalizedAgentId)
+    ) {
       throw new AppError("Invalid agent id", 400);
     }
 
@@ -527,7 +591,7 @@ class AgentService {
       throw new AppError("Invalid document id", 400);
     }
 
-    const agent = await Agent.findById(agentId);
+    const agent = await Agent.findById(normalizedAgentId);
 
     if (!agent) {
       throw new AppError("Agent not found", 404);
@@ -545,7 +609,7 @@ class AgentService {
     agent.markModified("kycDocuments");
     await agent.save();
 
-    return populateAgent(Agent.findById(agent._id));
+    return populateAgentQuery(Agent.findById(agent._id));
   }
 }
 

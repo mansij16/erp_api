@@ -253,8 +253,8 @@ const agentSchema = new mongoose.Schema(
     },
     whatsapp: String,
 
-    contactPersonName: { type: String, required: true },
-    contactPersonPhone: { type: String, required: true },
+    contactPersonName: { type: String }, // optional to stay in sync with UI
+    contactPersonPhone: { type: String }, // optional to stay in sync with UI
     contactPersonEmail: { type: String, lowercase: true },
 
     customers: [

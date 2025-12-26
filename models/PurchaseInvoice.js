@@ -41,27 +41,62 @@ const purchaseInvoiceSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    supplierChallanNumber: String,
+    lrNumber: String,
+    lrDate: Date,
+    caseNumber: String,
+    hsnCode: String,
     date: {
       type: Date,
       default: Date.now,
     },
+    gstMode: {
+      type: String,
+      enum: ["intra", "inter"],
+      default: "intra",
+    },
+    sgst: {
+      type: Number,
+      default: 0,
+    },
+    cgst: {
+      type: Number,
+      default: 0,
+    },
+    igst: {
+      type: Number,
+      default: 0,
+    },
     lines: [
       {
         poLineId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "PurchaseOrder.lines",
+          // Allow manual lines that use string identifiers (e.g., "manual-123")
+          type: mongoose.Schema.Types.Mixed,
         },
+        poId: {
+          type: mongoose.Schema.Types.Mixed,
+        },
+        poNumber: String,
         skuId: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "SKU",
         },
+        skuCode: String,
+        categoryName: String,
+        qualityName: String,
+        gsm: String,
+        widthInches: Number,
+        lengthMetersPerRoll: Number,
         qtyRolls: Number,
         ratePerRoll: Number,
         taxRate: {
           type: Number,
           default: 18,
         },
+        totalMeters: Number,
         lineTotal: Number,
+        inwardRolls: Number,
+        inwardMeters: Number,
       },
     ],
     subtotal: Number,
@@ -97,6 +132,7 @@ const purchaseInvoiceSchema = new mongoose.Schema(
       ref: "User",
     },
     postedAt: Date,
+    notes: String,
   },
   {
     timestamps: true,

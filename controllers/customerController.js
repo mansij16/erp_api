@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Customer = require("../models/Customer");
 const SalesInvoice = require("../models/SalesInvoice");
 const SalesOrder = require("../models/SalesOrder");
@@ -102,10 +103,37 @@ const normalizeCustomerGroupIds = (groupIds, fallback) => {
   return [...new Set(normalized)];
 };
 
-const validateAgentId = async (agentId) => {
-  if (!agentId) return null;
+const normalizeAgentId = (raw) => {
+  if (!raw) return null;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    // Attempt to parse JSON stringified object
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return parsed._id || parsed.id || parsed.value || null;
+      } catch (err) {
+        // fall through
+      }
+    }
+    return trimmed;
+  }
+  if (typeof raw === "object") {
+    return raw._id || raw.id || raw.value || null;
+  }
+  return null;
+};
 
-  const agent = await Agent.findById(agentId);
+const validateAgentId = async (agentId) => {
+  const normalized = normalizeAgentId(agentId);
+  if (!normalized) return null;
+
+  if (!mongoose.Types.ObjectId.isValid(normalized)) {
+    throw new AppError("Invalid agent id", 400, "INVALID_AGENT");
+  }
+
+  // Ensure we only use the normalized id for queries
+  const agent = await Agent.findById(normalized);
   if (!agent) {
     throw new AppError("Agent not found", 400, "INVALID_AGENT");
   }
@@ -118,8 +146,8 @@ const syncAgentCustomerMapping = async (
   previousAgentId,
   nextAgentId
 ) => {
-  const prev = previousAgentId ? previousAgentId.toString() : null;
-  const next = nextAgentId ? nextAgentId.toString() : null;
+  const prev = normalizeAgentId(previousAgentId);
+  const next = normalizeAgentId(nextAgentId);
 
   const operations = [];
 
@@ -240,6 +268,8 @@ const updateCustomer = handleAsyncErrors(async (req, res) => {
     throw new AppError("Customer not found", 404, "RESOURCE_NOT_FOUND");
   }
 
+  const previousBaseRate44 = existingCustomer.baseRate44;
+
   const previousAgentId = existingCustomer.agentId;
 
   const updateData = { ...req.body };
@@ -309,6 +339,26 @@ const updateCustomer = handleAsyncErrors(async (req, res) => {
     previousAgentId,
     customer.agentId
   );
+
+  // Record rate history when baseRate44 changes
+  if (
+    updateData.baseRate44 !== undefined &&
+    previousBaseRate44 !== undefined &&
+    updateData.baseRate44 !== previousBaseRate44
+  ) {
+    try {
+      await RateHistory.create({
+        customerId: customer._id,
+        effectiveRate44: previousBaseRate44,
+        appliedWidth: 44,
+        isOverride: false,
+        dealNotes: "Previous base rate before update",
+      });
+    } catch (err) {
+      // Log but do not block update
+      console.error("Failed to record rate history", err);
+    }
+  }
 
   res.json({
     success: true,
