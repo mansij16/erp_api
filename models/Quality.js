@@ -16,11 +16,18 @@ const qualitySchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   }
 );
 
 qualitySchema.index({ name: 1 });
 qualitySchema.index({ active: 1 });
+
+// Provide a stable primary key field for consumers that expect `id`
+qualitySchema.virtual("id").get(function () {
+  return this._id.toHexString();
+});
 
 module.exports = mongoose.model("Quality", qualitySchema);
 

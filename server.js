@@ -30,6 +30,8 @@ const salesOrderRoutes = require("./routes/salesOrderRoutes");
 const salesInvoiceRoutes = require("./routes/salesInvoiceRoutes");
 const voucherRoutes = require("./routes/voucherRoutes");
 const reportRoutes = require("./routes/reportRoutes");
+const gsmRoutes = require("./routes/gsmRoutes");
+const qualityRoutes = require("./routes/qualityRoutes");
 const Roll = require("./models/Roll");
 
 // Import error handler
@@ -75,6 +77,8 @@ app.use("/api/v1/sales-orders", salesOrderRoutes);
 app.use("/api/v1/sales-invoices", salesInvoiceRoutes);
 app.use("/api/v1/vouchers", voucherRoutes);
 app.use("/api/v1/reports", reportRoutes);
+app.use("/api/v1/gsms", gsmRoutes);
+app.use("/api/v1/qualities", qualityRoutes);
 
 // Health check
 app.get("/api/v1/health", (req, res) => {

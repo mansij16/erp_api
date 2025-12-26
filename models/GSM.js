@@ -21,8 +21,15 @@ const gsmSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   }
 );
+
+// Provide a stable primary key field for consumers that expect `id`
+gsmSchema.virtual("id").get(function () {
+  return this._id.toHexString();
+});
 
 gsmSchema.index({ name: 1 });
 gsmSchema.index({ value: 1 });
