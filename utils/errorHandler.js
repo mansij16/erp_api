@@ -15,11 +15,23 @@ const handleAsyncErrors = (fn) => {
 };
 
 const handleValidationError = (err) => {
-  const errors = Object.values(err.errors).map((e) => ({
-    field: e.path,
-    message: e.message,
-  }));
-  return new AppError("Validation Error", 400, "VALIDATION_ERROR");
+  const formatField = (path = "") => path.replace(/\./g, " ");
+
+  const details = Object.values(err.errors || {}).map((e) => {
+    if (e.kind === "enum") {
+      const allowed = e?.properties?.enumValues;
+      if (allowed?.length) {
+        return `${formatField(e.path)} must be one of: ${allowed.join(", ")}`;
+      }
+    }
+    if (e.message) return e.message;
+    return `${formatField(e.path)} is invalid`;
+  });
+
+  const message = details[0] || "Validation failed";
+  const error = new AppError(message, 400, "VALIDATION_ERROR");
+  error.details = details;
+  return error;
 };
 
 const handleDuplicateKeyError = (err) => {

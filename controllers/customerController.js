@@ -62,18 +62,36 @@ const sanitizeNumericValue = (value) => {
   return value;
 };
 
+// Helper to normalize block rule values coming from UI
+const normalizeBlockRule = (rawRule) => {
+  if (!rawRule) return rawRule;
+  const map = {
+    CREDIT_OVER_DUE: "OVER_LIMIT", // legacy UI option label
+    DAYS_OVER_DUE: "OVER_DUE",
+    ANY: "BOTH",
+  };
+  if (typeof rawRule === "string") {
+    const upper = rawRule.trim().toUpperCase();
+    return map[upper] || upper;
+  }
+  return rawRule;
+};
+
 // Helper function to sanitize credit policy
 const sanitizeCreditPolicy = (creditPolicy) => {
   if (!creditPolicy) return creditPolicy;
   return {
     ...creditPolicy,
     creditLimit: sanitizeNumericValue(creditPolicy.creditLimit),
-    creditDays: typeof creditPolicy.creditDays === 'string' 
-      ? parseInt(creditPolicy.creditDays.replace(/[,\s]/g, '')) || 0
-      : creditPolicy.creditDays,
-    graceDays: typeof creditPolicy.graceDays === 'string'
-      ? parseInt(creditPolicy.graceDays.replace(/[,\s]/g, '')) || 0
-      : creditPolicy.graceDays,
+    creditDays:
+      typeof creditPolicy.creditDays === "string"
+        ? parseInt(creditPolicy.creditDays.replace(/[,\s]/g, "")) || 0
+        : creditPolicy.creditDays,
+    graceDays:
+      typeof creditPolicy.graceDays === "string"
+        ? parseInt(creditPolicy.graceDays.replace(/[,\s]/g, "")) || 0
+        : creditPolicy.graceDays,
+    blockRule: normalizeBlockRule(creditPolicy.blockRule),
   };
 };
 
