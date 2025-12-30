@@ -1,7 +1,11 @@
 const PurchaseInvoice = require("../models/PurchaseInvoice");
 const PurchaseOrder = require("../models/PurchaseOrder");
 const GRN = require("../models/GRN");
+const Batch = require("../models/Batch");
+const Roll = require("../models/Roll");
+const Supplier = require("../models/Supplier");
 const numberingService = require("../services/numberingService");
+const { STATUS, PURCHASE_ORDER_STATUS } = require("../config/constants");
 const { handleAsyncErrors, AppError } = require("../utils/errorHandler");
 
 // Get all purchase invoices
@@ -209,20 +213,45 @@ const allocateLandedCost = handleAsyncErrors(async (req, res) => {
 
 // Post purchase invoice
 const postPurchaseInvoice = handleAsyncErrors(async (req, res) => {
-  const purchaseInvoice = await PurchaseInvoice.findById(req.params.id);
+  // Atomic status transition to avoid duplicate posting/roll creation
+  const updated = await PurchaseInvoice.findOneAndUpdate(
+    { _id: req.params.id, status: STATUS.DRAFT },
+    {
+      status: STATUS.POSTED,
+      postedBy: req.user?._id || undefined,
+      postedAt: new Date(),
+    },
+    { new: true }
+  );
 
-  if (!purchaseInvoice) {
+  if (updated) {
+    await createRollsForPurchaseInvoice(updated);
+    await updatePurchaseOrderBalances(updated);
+    return res.json({
+      success: true,
+      data: updated,
+    });
+  }
+
+  // If not updated, fetch to determine state
+  const existing = await PurchaseInvoice.findById(req.params.id);
+  if (!existing) {
     throw new AppError("Purchase invoice not found", 404, "RESOURCE_NOT_FOUND");
   }
 
-  if (purchaseInvoice.status !== "Draft") {
-    throw new AppError("Only draft purchase invoices can be posted", 400, "INVALID_STATE_TRANSITION");
+  if (existing.status === STATUS.POSTED) {
+    return res.json({
+      success: true,
+      data: existing,
+      message: "Purchase invoice already posted",
+    });
   }
 
-  purchaseInvoice.status = "Posted";
-  purchaseInvoice.postedBy = req.user?._id || undefined;
-  purchaseInvoice.postedAt = new Date();
-  await purchaseInvoice.save();
+  throw new AppError(
+    "Only draft purchase invoices can be posted",
+    400,
+    "INVALID_STATE_TRANSITION"
+  );
 
   // TODO: Generate accounting voucher
 
@@ -231,6 +260,257 @@ const postPurchaseInvoice = handleAsyncErrors(async (req, res) => {
     data: purchaseInvoice,
   });
 });
+
+// Create rolls for a purchase invoice and update stock
+const createRollsForPurchaseInvoice = async (purchaseInvoice) => {
+  // Avoid duplicate roll creation if already processed for this PI
+  const existingBatch = await Batch.findOne({
+    purchaseInvoiceId: purchaseInvoice._id,
+  });
+  const existingRollsCount = existingBatch
+    ? await Roll.countDocuments({ batchId: existingBatch._id })
+    : 0;
+  if (existingBatch && existingRollsCount > 0) return;
+
+  const supplier = await Supplier.findById(purchaseInvoice.supplierId);
+  if (!supplier) {
+    throw new AppError("Supplier not found for purchase invoice", 404);
+  }
+
+  const batch =
+    existingBatch ||
+    (
+      await Batch.create({
+        supplierId: supplier._id,
+        purchaseInvoiceId: purchaseInvoice._id,
+        batchCode: numberingService.generateBatchCode(),
+      })
+    );
+
+  const totalMetersAcrossLines = (purchaseInvoice.lines || []).reduce(
+    (sum, line) => {
+      const rollCount =
+        Number(line.inwardRolls) ||
+        Number(line.qtyRolls) ||
+        Number(line.receivedQty) ||
+        1;
+      const perRollLength =
+        Number(line.lengthMetersPerRoll) ||
+        (Number(line.totalMeters) && rollCount
+          ? Number(line.totalMeters) / rollCount
+          : 0);
+      const lineMeters = perRollLength * rollCount;
+      return sum + (Number(lineMeters) || 0);
+    },
+    0
+  );
+
+  const overheadPerMeter =
+    totalMetersAcrossLines > 0
+      ? (purchaseInvoice.totalLandedCost || 0) / totalMetersAcrossLines
+      : 0;
+
+  const preparedRolls = [];
+
+  for (const line of purchaseInvoice.lines || []) {
+    // Use roll quantity from PI line: inwardRolls > qtyRolls > receivedQty > 1
+    const rollCount =
+      Number(line.inwardRolls) ||
+      Number(line.qtyRolls) ||
+      Number(line.receivedQty) ||
+      1;
+    const lengthPerRoll =
+      Number(line.lengthMetersPerRoll) ||
+      (Number(line.totalMeters) && rollCount
+        ? Number(line.totalMeters) / rollCount
+        : 0) ||
+      0;
+    const width = Number(line.widthInches || line.width || 0);
+
+    if (!rollCount || !lengthPerRoll || ![24, 36, 44, 63].includes(width)) {
+      continue;
+    }
+
+    const rate = Number(line.ratePerRoll) || 0;
+    const baseCostPerMeter =
+      lengthPerRoll > 0 ? rate / lengthPerRoll : 0;
+    const landedCostPerMeter = baseCostPerMeter + overheadPerMeter;
+
+    for (let i = 0; i < rollCount; i++) {
+      const seq = preparedRolls.length + 1;
+      const rollNumber = `${purchaseInvoice.piNumber}-R${String(seq).padStart(
+        4,
+        "0"
+      )}`;
+
+      preparedRolls.push({
+        rollNumber,
+        supplierId: supplier._id,
+        batchId: batch._id,
+        skuId: line.skuId || null,
+        skuCode: line.skuCode,
+        categoryName: line.categoryName,
+        qualityName: line.qualityName,
+        gsm: line.gsm,
+        widthInches: width,
+        originalLengthMeters: lengthPerRoll,
+        currentLengthMeters: lengthPerRoll,
+        status: line.skuId ? "Mapped" : "Unmapped",
+        baseCostPerMeter,
+        landedCostPerMeter,
+        totalLandedCost:
+          Math.round(landedCostPerMeter * lengthPerRoll * 100) / 100,
+        poLineId: line.poLineId,
+      });
+    }
+  }
+
+  if (!preparedRolls.length) return;
+
+  // If rolls already exist for this batch, skip creation (idempotent)
+  const rollExists = existingBatch
+    ? await Roll.exists({ batchId: existingBatch._id })
+    : null;
+  if (rollExists) return;
+
+  await Roll.insertMany(preparedRolls);
+
+  // Refresh batch roll count
+  const rollCount = await Roll.countDocuments({ batchId: batch._id });
+  batch.totalRolls = rollCount;
+  await batch.save();
+};
+
+// Update PO line invoiced quantities and status after posting PI
+const updatePurchaseOrderBalances = async (purchaseInvoice) => {
+  if (!purchaseInvoice.purchaseOrderId) return;
+
+  const po = await PurchaseOrder.findById(purchaseInvoice.purchaseOrderId);
+  if (!po) return;
+
+  let linesUpdated = false;
+  const lines = po.lines || [];
+  const piLines = purchaseInvoice.lines || [];
+
+  // Map line updates by PO line id (rolls and meters)
+  const updatesByLineId = new Map();
+  const metersByLineId = new Map();
+
+  // Build a lightweight matcher for PO lines in case poLineId is missing on PI lines
+  const poLineByKey = new Map();
+  lines.forEach((line) => {
+    const keyParts = [
+      line.skuId?.toString?.() || line.skuId || "",
+      line.widthInches || "",
+      line.gsm || "",
+      line.qualityName || "",
+    ];
+    const key = keyParts.join("|");
+    if (!poLineByKey.has(key)) {
+      poLineByKey.set(key, line._id?.toString?.());
+    }
+  });
+
+  piLines.forEach((line) => {
+    let id = line.poLineId?.toString?.() || line.poLineId;
+    if (!id) {
+      const keyParts = [
+        line.skuId?.toString?.() || line.skuId || "",
+        line.widthInches || line.width || "",
+        line.gsm || "",
+        line.qualityName || "",
+      ];
+      const key = keyParts.join("|");
+      id = poLineByKey.get(key);
+    }
+    if (!id) return;
+
+    const rollCount =
+      Number(line.inwardRolls) ||
+      Number(line.qtyRolls) ||
+      Number(line.receivedQty) ||
+      0;
+    const perRollMeters =
+      Number(line.lengthMetersPerRoll) ||
+      (rollCount > 0 && Number(line.totalMeters)
+        ? Number(line.totalMeters) / rollCount
+        : 0);
+    const addMeters = perRollMeters * rollCount;
+
+    const existing = updatesByLineId.get(id) || 0;
+    updatesByLineId.set(id, existing + rollCount);
+
+    const existingMeters = metersByLineId.get(id) || 0;
+    metersByLineId.set(id, existingMeters + addMeters);
+  });
+
+  const updatedLines = lines.map((line) => {
+    const id = line._id?.toString?.();
+    if (!id) return line;
+    const addRolls = updatesByLineId.get(id) || 0;
+    const addMeters = metersByLineId.get(id) || 0;
+    if (!addRolls && !addMeters) return line;
+
+    const orderedRolls = Number(line.qtyRolls) || 0;
+    const orderedMeters =
+      Number(line.totalMeters) ||
+      orderedRolls * (Number(line.lengthMetersPerRoll) || 0) ||
+      0;
+
+    const nextInvoiced = Math.min(
+      (Number(line.invoicedQty) || 0) + addRolls,
+      orderedRolls
+    );
+    const nextReceived = Math.min(
+      (Number(line.receivedQty) || 0) + addRolls,
+      orderedRolls
+    );
+    const nextReceivedMeters = Math.min(
+      (Number(line.receivedMeters) || 0) + addMeters,
+      orderedMeters
+    );
+    linesUpdated = true;
+    const isComplete = nextReceived >= (Number(line.qtyRolls) || 0);
+    return {
+      ...(line.toObject?.() ? line.toObject() : line),
+      invoicedQty: nextInvoiced,
+      receivedQty: nextReceived,
+      receivedMeters: nextReceivedMeters,
+      lineStatus: isComplete ? "Complete" : "Pending",
+    };
+  });
+
+  if (!linesUpdated) return;
+
+  po.lines = updatedLines;
+
+  // Aggregate received roll and meter totals
+  const totals = updatedLines.reduce(
+    (acc, l) => {
+      acc.rolls += Number(l.receivedQty) || 0;
+      acc.meters += Number(l.receivedMeters) || 0;
+      return acc;
+    },
+    { rolls: 0, meters: 0 }
+  );
+  po.totalReceivedRolls = totals.rolls;
+  po.totalReceivedMeters = totals.meters;
+
+  const totalLines = updatedLines.length;
+  const completeCount = updatedLines.filter(
+    (l) => (l.lineStatus || "").toLowerCase() === "complete"
+  ).length;
+
+  if (totalLines > 0 && completeCount === totalLines) {
+    po.poStatus = PURCHASE_ORDER_STATUS.COMPLETE;
+  } else if (completeCount > 0) {
+    po.poStatus = PURCHASE_ORDER_STATUS.PARTIAL;
+  } else {
+    po.poStatus = PURCHASE_ORDER_STATUS.PENDING;
+  }
+
+  await po.save();
+};
 
 module.exports = {
   getPurchaseInvoices,

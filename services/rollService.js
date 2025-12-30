@@ -509,6 +509,15 @@ class RollService {
       { $unwind: { path: "$product", preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
+          from: "categories",
+          localField: "product.categoryId",
+          foreignField: "_id",
+          as: "category",
+        },
+      },
+      { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
           from: "gsms",
           localField: "product.gsmId",
           foreignField: "_id",
@@ -529,6 +538,8 @@ class RollService {
         $group: {
           _id: {
             status: "$status",
+            skuCode: "$sku.skuCode",
+            categoryName: "$category.name",
             gsm: "$gsm.name",
             quality: "$quality.name",
             width: "$widthInches",

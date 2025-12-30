@@ -64,11 +64,23 @@ const purchaseOrderSchema = new mongoose.Schema(
           type: Number,
           default: 0,
         },
+        receivedMeters: {
+          type: Number,
+          default: 0,
+        },
       },
     ],
     subtotal: Number,
     totalAmount: Number,
     totalMeters: {
+      type: Number,
+      default: 0,
+    },
+    totalReceivedRolls: {
+      type: Number,
+      default: 0,
+    },
+    totalReceivedMeters: {
       type: Number,
       default: 0,
     },
