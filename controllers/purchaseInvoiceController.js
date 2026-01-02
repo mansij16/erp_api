@@ -4,9 +4,35 @@ const GRN = require("../models/GRN");
 const Batch = require("../models/Batch");
 const Roll = require("../models/Roll");
 const Supplier = require("../models/Supplier");
+const Ledger = require("../models/Ledger");
+const Voucher = require("../models/Voucher");
 const numberingService = require("../services/numberingService");
 const { STATUS, PURCHASE_ORDER_STATUS } = require("../config/constants");
 const { handleAsyncErrors, AppError } = require("../utils/errorHandler");
+
+const toNumber = (value) => {
+  const numeric = Number(value);
+  return Number.isNaN(numeric) ? 0 : numeric;
+};
+
+const buildPoLineKey = (line = {}) => {
+  const keyParts = [
+    line.skuId?.toString?.() || line.skuId || "",
+    line.widthInches || line.width || "",
+    line.gsm || "",
+    line.qualityName || "",
+  ];
+  return keyParts.join("|");
+};
+
+const resolvePoLineIdForInvoice = (line = {}, poLineById = new Map(), poLineByKey = new Map()) => {
+  let id = line.poLineId?.toString?.() || line.poLineId;
+  if (!id) {
+    const lookupKey = buildPoLineKey(line);
+    id = poLineByKey.get(lookupKey);
+  }
+  return id;
+};
 
 // Get all purchase invoices
 const getPurchaseInvoices = handleAsyncErrors(async (req, res) => {
@@ -70,10 +96,74 @@ const createPurchaseInvoice = handleAsyncErrors(async (req, res) => {
     date,
   } = req.body;
 
+  if (!purchaseOrderId) {
+    throw new AppError("Purchase order is required", 400, "VALIDATION_ERROR");
+  }
+
   // Verify purchase order exists
   const purchaseOrder = await PurchaseOrder.findById(purchaseOrderId);
   if (!purchaseOrder) {
     throw new AppError("Purchase order not found", 404, "RESOURCE_NOT_FOUND");
+  }
+
+  if (
+    purchaseOrder.poStatus === PURCHASE_ORDER_STATUS.CLOSED ||
+    purchaseOrder.poStatus === PURCHASE_ORDER_STATUS.CANCELLED
+  ) {
+    throw new AppError(
+      "Cannot create invoice for a closed or cancelled purchase order",
+      400,
+      "INVALID_STATE_TRANSITION"
+    );
+  }
+
+  // Posted GRNs are mandatory for three-way matching
+  const postedGrns = await GRN.find({
+    purchaseOrderId,
+    status: STATUS.POSTED,
+  });
+
+  if (!postedGrns.length) {
+    throw new AppError(
+      "No posted GRNs found for this purchase order. Post a GRN before invoicing.",
+      400,
+      "VALIDATION_ERROR"
+    );
+  }
+
+  const grnIdSet = new Set();
+  const receivedByLineId = new Map();
+  postedGrns.forEach((grn) => {
+    grnIdSet.add(grn._id.toString());
+    (grn.lines || []).forEach((line = {}) => {
+      const poLineId = line.poLineId?.toString?.() || line.poLineId;
+      if (!poLineId) return;
+      receivedByLineId.set(
+        poLineId,
+        (receivedByLineId.get(poLineId) || 0) + toNumber(line.qtyRolls)
+      );
+    });
+  });
+
+  const poLineById = new Map();
+  const poLineByKey = new Map();
+  (purchaseOrder.lines || []).forEach((line = {}) => {
+    const id = line._id?.toString?.();
+    if (id) {
+      poLineById.set(id, line);
+      const key = buildPoLineKey(line);
+      if (key && !poLineByKey.has(key)) {
+        poLineByKey.set(key, id);
+      }
+    }
+  });
+
+  if (!lines || !lines.length) {
+    throw new AppError(
+      "At least one invoice line is required",
+      400,
+      "VALIDATION_ERROR"
+    );
   }
 
   // Generate PI number
@@ -84,15 +174,66 @@ const createPurchaseInvoice = handleAsyncErrors(async (req, res) => {
   let computedLineTax = 0;
 
   const processedLines = (lines || []).map((line) => {
-    const qty = Number(line.qtyRolls) || 0;
-    const rate = Number(line.ratePerRoll) || 0;
-    const taxRate = Number(line.taxRate ?? 0) || 0;
-    const lengthMetersPerRoll = Number(line.lengthMetersPerRoll) || 0;
-    const inwardRolls = Number(line.inwardRolls) || 0;
+    const poLineId = resolvePoLineIdForInvoice(line, poLineById, poLineByKey);
+    if (!poLineId || !poLineById.has(poLineId)) {
+      throw new AppError(
+        "Each invoice line must reference a valid purchase order line",
+        400,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    const poLine = poLineById.get(poLineId);
+    const orderedRolls = toNumber(poLine.qtyRolls);
+    const alreadyInvoiced = toNumber(poLine.invoicedQty);
+    const receivedRolls = Math.max(
+      receivedByLineId.get(poLineId) || 0,
+      toNumber(poLine.receivedQty)
+    );
+
+    if (receivedRolls <= 0) {
+      throw new AppError(
+        "No posted GRN quantity is available to invoice for one or more lines",
+        400,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    const remainingReceipted = Math.max(
+      Math.min(orderedRolls, receivedRolls) - alreadyInvoiced,
+      0
+    );
+
+    const qty = toNumber(line.qtyRolls);
+    if (qty <= 0) {
+      throw new AppError(
+        "Invoice quantity must be greater than zero",
+        400,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    if (qty > remainingReceipted) {
+      throw new AppError(
+        `Invoice quantity ${qty} exceeds remaining receipted quantity ${remainingReceipted} for the purchase order line`,
+        400,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    const rate = toNumber(line.ratePerRoll) || toNumber(poLine.ratePerRoll);
+    const taxRate = toNumber(line.taxRate ?? poLine.taxRate ?? 0);
+    const lengthMetersPerRoll =
+      toNumber(line.lengthMetersPerRoll) ||
+      toNumber(poLine.lengthMetersPerRoll);
+    const inwardRolls = toNumber(line.inwardRolls) || qty;
     const inwardMeters =
-      Number(line.inwardMeters) || inwardRolls * lengthMetersPerRoll || 0;
+      toNumber(line.inwardMeters) ||
+      inwardRolls * (lengthMetersPerRoll || 0) ||
+      0;
     const totalMeters =
-      Number(line.totalMeters) || (qty || 0) * (lengthMetersPerRoll || 0);
+      toNumber(line.totalMeters) ||
+      qty * (lengthMetersPerRoll || 0);
 
     const lineBaseTotal = qty * rate;
     const lineTax = lineBaseTotal * (taxRate / 100);
@@ -102,15 +243,15 @@ const createPurchaseInvoice = handleAsyncErrors(async (req, res) => {
 
     return {
       ...line,
-      poLineId: line.poLineId,
-      poId: line.poId,
-      poNumber: line.poNumber,
-      skuId: line.skuId,
-      skuCode: line.skuCode,
-      categoryName: line.categoryName,
-      qualityName: line.qualityName,
-      gsm: line.gsm,
-      widthInches: line.widthInches,
+      poLineId,
+      poId: purchaseOrderId,
+      poNumber: purchaseOrder.poNumber,
+      skuId: line.skuId || poLine.skuId,
+      skuCode: line.skuCode || poLine.skuCode,
+      categoryName: line.categoryName || poLine.categoryName,
+      qualityName: line.qualityName || poLine.qualityName,
+      gsm: line.gsm || poLine.gsm,
+      widthInches: line.widthInches || poLine.widthInches,
       lengthMetersPerRoll,
       qtyRolls: qty,
       ratePerRoll: rate,
@@ -155,6 +296,7 @@ const createPurchaseInvoice = handleAsyncErrors(async (req, res) => {
     supplierInvoiceNumber,
     supplierChallanNumber,
     purchaseOrderId,
+    grnIds: Array.from(grnIdSet),
     supplierId: purchaseOrder.supplierId,
     supplierName: purchaseOrder.supplierName,
     date: date ? new Date(date) : new Date(),
@@ -224,40 +366,49 @@ const postPurchaseInvoice = handleAsyncErrors(async (req, res) => {
     { new: true }
   );
 
-  if (updated) {
-    await createRollsForPurchaseInvoice(updated);
-    await updatePurchaseOrderBalances(updated);
-    return res.json({
-      success: true,
-      data: updated,
-    });
+  let purchaseInvoice = updated;
+  const newlyPosted = !!updated;
+
+  if (!purchaseInvoice) {
+    purchaseInvoice = await PurchaseInvoice.findById(req.params.id);
+    if (!purchaseInvoice) {
+      throw new AppError(
+        "Purchase invoice not found",
+        404,
+        "RESOURCE_NOT_FOUND"
+      );
+    }
+
+    if (purchaseInvoice.status !== STATUS.POSTED) {
+      throw new AppError(
+        "Only draft purchase invoices can be posted",
+        400,
+        "INVALID_STATE_TRANSITION"
+      );
+    }
   }
 
-  // If not updated, fetch to determine state
-  const existing = await PurchaseInvoice.findById(req.params.id);
-  if (!existing) {
-    throw new AppError("Purchase invoice not found", 404, "RESOURCE_NOT_FOUND");
+  if (newlyPosted) {
+    await createRollsForPurchaseInvoice(purchaseInvoice);
+    await updatePurchaseOrderBalances(purchaseInvoice);
   }
 
-  if (existing.status === STATUS.POSTED) {
-    return res.json({
-      success: true,
-      data: existing,
-      message: "Purchase invoice already posted",
-    });
+  // Always ensure the accounting voucher exists for a posted invoice
+  if (purchaseInvoice.status === STATUS.POSTED) {
+    const voucher = await ensurePurchaseInvoiceVoucher(
+      purchaseInvoice,
+      req.user?._id
+    );
+    if (voucher && !purchaseInvoice.voucherId) {
+      purchaseInvoice.voucherId = voucher._id;
+      await purchaseInvoice.save();
+    }
   }
-
-  throw new AppError(
-    "Only draft purchase invoices can be posted",
-    400,
-    "INVALID_STATE_TRANSITION"
-  );
-
-  // TODO: Generate accounting voucher
 
   res.json({
     success: true,
     data: purchaseInvoice,
+    message: newlyPosted ? undefined : "Purchase invoice already posted",
   });
 });
 
@@ -501,15 +652,129 @@ const updatePurchaseOrderBalances = async (purchaseInvoice) => {
     (l) => (l.lineStatus || "").toLowerCase() === "complete"
   ).length;
 
-  if (totalLines > 0 && completeCount === totalLines) {
-    po.poStatus = PURCHASE_ORDER_STATUS.COMPLETE;
-  } else if (completeCount > 0) {
-    po.poStatus = PURCHASE_ORDER_STATUS.PARTIAL;
-  } else {
-    po.poStatus = PURCHASE_ORDER_STATUS.PENDING;
+  if (po.poStatus !== PURCHASE_ORDER_STATUS.CANCELLED) {
+    const allReceived = updatedLines.every(
+      (l) => (Number(l.receivedQty) || 0) >= (Number(l.qtyRolls) || 0)
+    );
+    const allInvoiced = updatedLines.every(
+      (l) => (Number(l.invoicedQty) || 0) >= (Number(l.qtyRolls) || 0)
+    );
+
+    if (allReceived && allInvoiced && totalLines > 0) {
+      po.poStatus = PURCHASE_ORDER_STATUS.CLOSED;
+      po.closedAt = po.closedAt || new Date();
+      po.closedBy = purchaseInvoice?.postedBy || po.closedBy;
+      po.closeReason =
+        po.closeReason ||
+        (purchaseInvoice?.piNumber
+          ? `Auto-closed on posting PI ${purchaseInvoice.piNumber}`
+          : "Auto-closed after full receipt and invoicing");
+    } else if (totalLines > 0 && completeCount === totalLines) {
+      po.poStatus = PURCHASE_ORDER_STATUS.COMPLETE;
+    } else if (completeCount > 0) {
+      po.poStatus = PURCHASE_ORDER_STATUS.PARTIAL;
+    } else {
+      po.poStatus = PURCHASE_ORDER_STATUS.PENDING;
+    }
   }
 
   await po.save();
+};
+
+const getLedgerByCode = async (ledgerCode) => {
+  const ledger = await Ledger.findOne({ ledgerCode });
+  if (!ledger) {
+    throw new AppError(
+      `Ledger not configured: ${ledgerCode}`,
+      500,
+      "CONFIG_ERROR"
+    );
+  }
+  return ledger;
+};
+
+const applyLedgerDelta = async (ledger, debit = 0, credit = 0) => {
+  const increaseOnDebit = ["Assets", "Expenses"].includes(ledger.group);
+  const delta = increaseOnDebit ? debit - credit : credit - debit;
+  ledger.currentBalance = toNumber(ledger.currentBalance) + delta;
+  await ledger.save();
+};
+
+const ensurePurchaseInvoiceVoucher = async (purchaseInvoice, userId) => {
+  if (!purchaseInvoice) return null;
+
+  if (purchaseInvoice.voucherId) {
+    const existing = await Voucher.findById(purchaseInvoice.voucherId);
+    if (existing) return existing;
+  }
+
+  const [inventoryLedger, inputTaxLedger, apLedger] = await Promise.all([
+    getLedgerByCode("INVENTORY"),
+    getLedgerByCode("INPUT_TAX"),
+    getLedgerByCode("AP"),
+  ]);
+
+  const inventoryDebit =
+    toNumber(purchaseInvoice.subtotal) +
+    toNumber(purchaseInvoice.totalLandedCost);
+  const taxAmount = toNumber(purchaseInvoice.taxAmount);
+  const totalDebit = inventoryDebit + taxAmount;
+  const payableCredit =
+    purchaseInvoice.grandTotal !== undefined
+      ? toNumber(purchaseInvoice.grandTotal)
+      : totalDebit;
+
+  const voucherNumber = await numberingService.generateNumber(
+    "VCH",
+    Voucher
+  );
+
+  const voucher = await Voucher.create({
+    voucherNumber,
+    voucherType: "Purchase",
+    date: purchaseInvoice.date || new Date(),
+    referenceType: "PurchaseInvoice",
+    referenceId: purchaseInvoice._id,
+    referenceNumber: purchaseInvoice.piNumber,
+    narration: `Purchase invoice ${purchaseInvoice.piNumber}`,
+    lines: [
+      {
+        ledgerId: inventoryLedger._id,
+        ledgerName: inventoryLedger.name,
+        debit: inventoryDebit,
+        credit: 0,
+        description: "Inventory capitalization",
+      },
+      {
+        ledgerId: inputTaxLedger._id,
+        ledgerName: inputTaxLedger.name,
+        debit: taxAmount,
+        credit: 0,
+        description: "Input tax credit",
+      },
+      {
+        ledgerId: apLedger._id,
+        ledgerName: apLedger.name,
+        debit: 0,
+        credit: payableCredit,
+        description: `Accounts payable - ${purchaseInvoice.supplierName || ""}`,
+      },
+    ],
+    totalDebit,
+    totalCredit: payableCredit,
+    status: STATUS.POSTED,
+    postedAt: new Date(),
+    postedBy: userId || purchaseInvoice.postedBy,
+    createdBy: purchaseInvoice.createdBy,
+  });
+
+  await Promise.all([
+    applyLedgerDelta(inventoryLedger, inventoryDebit, 0),
+    applyLedgerDelta(inputTaxLedger, taxAmount, 0),
+    applyLedgerDelta(apLedger, 0, payableCredit),
+  ]);
+
+  return voucher;
 };
 
 module.exports = {

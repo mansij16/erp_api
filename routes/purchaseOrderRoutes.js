@@ -7,6 +7,8 @@ const {
   updatePurchaseOrder,
   approvePurchaseOrder,
   closePurchaseOrder,
+  cancelPurchaseOrder,
+  remindPurchaseOrder,
 } = require("../controllers/purchaseOrderController");
 
 // All routes require authentication
@@ -22,5 +24,7 @@ router.route("/:id")
 
 router.post("/:id/approve", approvePurchaseOrder);
 router.post("/:id/close", closePurchaseOrder);
+router.post("/:id/cancel", cancelPurchaseOrder);
+router.post("/:id/remind", remindPurchaseOrder);
 
 module.exports = router;

@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const rollService = require("../services/rollService");
 const catchAsync = require("../utils/catchAsync");
 const Roll = require("../models/Roll");
@@ -55,7 +56,12 @@ class RollController {
   });
 
   getRoll = catchAsync(async (req, res) => {
-    const roll = await Roll.findById(req.params.id)
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw new AppError("Invalid roll id", 400, "INVALID_ID");
+    }
+
+    const roll = await Roll.findById(id)
       .populate("skuId")
       .populate("supplierId")
       .populate("batchId");
@@ -73,7 +79,12 @@ class RollController {
   });
 
   updateRoll = catchAsync(async (req, res) => {
-    const roll = await Roll.findByIdAndUpdate(req.params.id, req.body, {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw new AppError("Invalid roll id", 400, "INVALID_ID");
+    }
+
+    const roll = await Roll.findByIdAndUpdate(id, req.body, {
       new: true,
       runValidators: true,
     })
@@ -92,7 +103,12 @@ class RollController {
   });
 
   getRollHistory = catchAsync(async (req, res) => {
-    const roll = await Roll.findById(req.params.id);
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw new AppError("Invalid roll id", 400, "INVALID_ID");
+    }
+
+    const roll = await Roll.findById(id);
 
     if (!roll) {
       throw new AppError("Roll not found", 404);
@@ -219,12 +235,13 @@ class RollController {
   });
 
   markAsScrap = catchAsync(async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw new AppError("Invalid roll id", 400, "INVALID_ID");
+    }
+
     const { reason } = req.body;
-    const roll = await rollService.markAsScrap(
-      req.params.id,
-      reason,
-      req.userId
-    );
+    const roll = await rollService.markAsScrap(id, reason, req.userId);
 
     res.status(200).json({
       success: true,

@@ -32,6 +32,12 @@ const purchaseInvoiceSchema = new mongoose.Schema(
       ref: "PurchaseOrder",
       required: true,
     },
+    grnIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "GRN",
+      },
+    ],
     supplierId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Supplier",

@@ -25,6 +25,7 @@ module.exports = {
     PARTIAL: "Partial",
     COMPLETE: "Complete",
     APPROVED: "Approved",
+    CANCELLED: "Cancelled",
     CLOSED: "Closed",
   },
 

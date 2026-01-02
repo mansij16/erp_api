@@ -7,10 +7,9 @@ const { STATUS, PURCHASE_ORDER_STATUS } = require("../config/constants");
 
 // Get all purchase orders
 const getPurchaseOrders = handleAsyncErrors(async (req, res) => {
-  const { supplierId, dateFrom, dateTo } = req.query;
+  const { supplierId, dateFrom, dateTo, overdueOnly } = req.query;
 
   const filter = {};
-  // if (status) filter.status = status;
   if (supplierId) filter.supplierId = supplierId;
   if (dateFrom || dateTo) {
     filter.date = {};
@@ -19,13 +18,37 @@ const getPurchaseOrders = handleAsyncErrors(async (req, res) => {
   }
 
   const purchaseOrders = await PurchaseOrder.find(filter)
-    .populate("supplierId", "name supplierCode")
+    .populate("supplierId", "name supplierCode leadTime")
     .sort({ createdAt: -1 });
+
+  const ordersWithTracking = purchaseOrders.map((poDoc) => {
+    const poObject = poDoc.toObject ? poDoc.toObject() : poDoc;
+    const overdueInfo = buildOverdueInfo(poObject);
+
+    return {
+      ...poObject,
+      expectedDeliveryDate: overdueInfo.expectedDeliveryDate,
+      supplierLeadTime: overdueInfo.supplierLeadTime,
+      outstanding: overdueInfo.outstanding,
+      overdue: {
+        isOverdue: overdueInfo.isOverdue,
+        days: overdueInfo.overdueDays,
+      },
+    };
+  });
+
+  const filterOverdue =
+    typeof overdueOnly === "string" &&
+    ["true", "1", "yes"].includes(overdueOnly.toLowerCase());
+
+  const filteredOrders = filterOverdue
+    ? ordersWithTracking.filter((po) => po.overdue?.isOverdue)
+    : ordersWithTracking;
 
   res.json({
     success: true,
-    count: purchaseOrders.length,
-    data: purchaseOrders,
+    count: filteredOrders.length,
+    data: filteredOrders,
   });
 });
 
@@ -84,6 +107,80 @@ const deriveOrderStatusFromLines = (lines = []) => {
   return PURCHASE_ORDER_STATUS.PENDING;
 };
 
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const normalizeDateInput = (value) => {
+  if (!value) return null;
+  const dateValue = new Date(value);
+  return Number.isNaN(dateValue.getTime()) ? null : dateValue;
+};
+
+const calculateOutstanding = (poDoc = {}) => {
+  return (poDoc.lines || []).reduce(
+    (acc, line = {}) => {
+      const orderedRolls = sanitizeNumber(line.qtyRolls);
+      const receivedRolls = sanitizeNumber(line.receivedQty);
+      const orderedMeters =
+        sanitizeNumber(line.totalMeters) ||
+        orderedRolls * sanitizeNumber(line.lengthMetersPerRoll);
+      const receivedMeters = sanitizeNumber(line.receivedMeters);
+
+      acc.rolls += Math.max(orderedRolls - receivedRolls, 0);
+      acc.meters += Math.max(orderedMeters - receivedMeters, 0);
+      return acc;
+    },
+    { rolls: 0, meters: 0 }
+  );
+};
+
+const computeExpectedDate = (poDoc = {}, supplierLeadTime = 0) => {
+  const provided = normalizeDateInput(poDoc.expectedDeliveryDate);
+  if (provided) return provided;
+
+  const baseDate = normalizeDateInput(poDoc.date) || new Date();
+  const leadDays =
+    typeof supplierLeadTime === "number"
+      ? supplierLeadTime
+      : Number(supplierLeadTime) || 0;
+
+  if (leadDays <= 0) return baseDate;
+  return new Date(baseDate.getTime() + leadDays * DAY_IN_MS);
+};
+
+const buildOverdueInfo = (poDoc = {}) => {
+  const supplierLeadTime =
+    poDoc.supplierLeadTime ||
+    poDoc.supplierId?.leadTime ||
+    poDoc.supplier?.leadTime ||
+    0;
+
+  const expected = computeExpectedDate(poDoc, supplierLeadTime || 7);
+  const outstanding = calculateOutstanding(poDoc);
+  const now = new Date();
+
+  const isClosed = [
+    PURCHASE_ORDER_STATUS.CLOSED,
+    PURCHASE_ORDER_STATUS.CANCELLED,
+  ].includes(poDoc.poStatus);
+
+  const isOverdue =
+    !isClosed &&
+    outstanding.rolls > 0 &&
+    expected &&
+    expected.getTime() < now.getTime();
+
+  const overdueDays = isOverdue
+    ? Math.ceil((now.getTime() - expected.getTime()) / DAY_IN_MS)
+    : 0;
+
+  return {
+    outstanding,
+    expectedDeliveryDate: expected,
+    isOverdue,
+    overdueDays,
+    supplierLeadTime: supplierLeadTime || 7,
+  };
+};
+
 // Create purchase order
 const createPurchaseOrder = handleAsyncErrors(async (req, res) => {
   const {
@@ -93,6 +190,9 @@ const createPurchaseOrder = handleAsyncErrors(async (req, res) => {
     status: requestedStatusLegacy,
     poStatus: requestedPoStatus,
     saveAsDraft,
+    expectedDeliveryDate,
+    date,
+    supplierLeadTime: supplierLeadTimeInput,
   } = req.body;
 
   // Verify supplier exists
@@ -103,6 +203,17 @@ const createPurchaseOrder = handleAsyncErrors(async (req, res) => {
 
   // Generate PO number
   const poNumber = await numberingService.generateNumber("PO", PurchaseOrder);
+
+  const orderDate = normalizeDateInput(date) || new Date();
+  const normalizedLeadTime = sanitizeNumber(
+    supplierLeadTimeInput !== undefined
+      ? supplierLeadTimeInput
+      : supplier.leadTime || 0
+  );
+  const effectiveLeadTime = normalizedLeadTime || sanitizeNumber(supplier.leadTime) || 7;
+
+  const computedExpectedDate = normalizeDateInput(expectedDeliveryDate)
+    || computeExpectedDate({ date: orderDate }, effectiveLeadTime);
 
   // Calculate totals
   let subtotal = 0;
@@ -151,11 +262,14 @@ const createPurchaseOrder = handleAsyncErrors(async (req, res) => {
     poNumber,
     supplierId,
     supplierName: supplier.name,
+    date: orderDate,
     lines: normalizedLinesForCreate,
     subtotal,
     totalAmount: subtotal,
     totalMeters: totalMetersSum,
     poStatus: headerStatus,
+    supplierLeadTime: effectiveLeadTime,
+    expectedDeliveryDate: computedExpectedDate,
     notes,
     createdBy: req.user?._id,
   });
@@ -181,11 +295,25 @@ const updatePurchaseOrder = handleAsyncErrors(async (req, res) => {
     status: requestedStatusLegacy,
     poStatus: requestedPoStatus,
     saveAsDraft,
+    expectedDeliveryDate,
+    date,
+    supplierLeadTime: supplierLeadTimeInput,
   } = req.body;
 
   const purchaseOrder = await PurchaseOrder.findById(req.params.id);
   if (!purchaseOrder) {
     throw new AppError("Purchase order not found", 404, "RESOURCE_NOT_FOUND");
+  }
+
+  if (date) {
+    const normalizedDate = normalizeDateInput(date);
+    if (normalizedDate) {
+      purchaseOrder.date = normalizedDate;
+    }
+  }
+
+  if (supplierLeadTimeInput !== undefined) {
+    purchaseOrder.supplierLeadTime = sanitizeNumber(supplierLeadTimeInput);
   }
 
   // Recalculate totals if lines are updated
@@ -249,6 +377,17 @@ const updatePurchaseOrder = handleAsyncErrors(async (req, res) => {
   }
   purchaseOrder.poStatus = headerStatus;
 
+  if (expectedDeliveryDate !== undefined) {
+    purchaseOrder.expectedDeliveryDate = normalizeDateInput(expectedDeliveryDate);
+  } else if (!purchaseOrder.expectedDeliveryDate) {
+    const effectiveLeadTime =
+      purchaseOrder.supplierLeadTime || sanitizeNumber(purchaseOrder.supplierLeadTime) || 7;
+    purchaseOrder.expectedDeliveryDate = computeExpectedDate(
+      { date: purchaseOrder.date },
+      effectiveLeadTime
+    );
+  }
+
   if (notes !== undefined) purchaseOrder.notes = notes;
 
   await purchaseOrder.save();
@@ -296,9 +435,26 @@ const approvePurchaseOrder = handleAsyncErrors(async (req, res) => {
 // Close purchase order
 const closePurchaseOrder = handleAsyncErrors(async (req, res) => {
   const purchaseOrder = await PurchaseOrder.findById(req.params.id);
+  const reason = req.body?.reason;
 
   if (!purchaseOrder) {
     throw new AppError("Purchase order not found", 404, "RESOURCE_NOT_FOUND");
+  }
+
+  if (purchaseOrder.poStatus === PURCHASE_ORDER_STATUS.CLOSED) {
+    return res.json({
+      success: true,
+      data: purchaseOrder,
+      message: "Purchase order already closed",
+    });
+  }
+
+  if (purchaseOrder.poStatus === PURCHASE_ORDER_STATUS.CANCELLED) {
+    throw new AppError(
+      "Cancelled purchase orders cannot be closed",
+      400,
+      "INVALID_STATE_TRANSITION"
+    );
   }
 
   if (
@@ -306,6 +462,7 @@ const closePurchaseOrder = handleAsyncErrors(async (req, res) => {
       PURCHASE_ORDER_STATUS.APPROVED,
       PURCHASE_ORDER_STATUS.PARTIAL,
       "PartiallyReceived",
+      PURCHASE_ORDER_STATUS.COMPLETE,
     ].includes(purchaseOrder.poStatus)
   ) {
     throw new AppError(
@@ -316,11 +473,87 @@ const closePurchaseOrder = handleAsyncErrors(async (req, res) => {
   }
 
   purchaseOrder.poStatus = PURCHASE_ORDER_STATUS.CLOSED;
+  purchaseOrder.closeReason =
+    reason || purchaseOrder.closeReason || "Closed manually";
+  purchaseOrder.closedAt = new Date();
+  purchaseOrder.closedBy = req.user?._id || purchaseOrder.closedBy;
   await purchaseOrder.save();
 
   res.json({
     success: true,
     data: purchaseOrder,
+  });
+});
+
+// Cancel purchase order
+const cancelPurchaseOrder = handleAsyncErrors(async (req, res) => {
+  const purchaseOrder = await PurchaseOrder.findById(req.params.id);
+  const reason = req.body?.reason;
+
+  if (!purchaseOrder) {
+    throw new AppError("Purchase order not found", 404, "RESOURCE_NOT_FOUND");
+  }
+
+  if ([PURCHASE_ORDER_STATUS.CANCELLED, PURCHASE_ORDER_STATUS.CLOSED].includes(purchaseOrder.poStatus)) {
+    throw new AppError(
+      "Purchase order is already closed or cancelled",
+      400,
+      "INVALID_STATE_TRANSITION"
+    );
+  }
+
+  if (![PURCHASE_ORDER_STATUS.DRAFT, PURCHASE_ORDER_STATUS.APPROVED, PURCHASE_ORDER_STATUS.PENDING, PURCHASE_ORDER_STATUS.PARTIAL].includes(purchaseOrder.poStatus)) {
+    throw new AppError(
+      "Only draft, pending, approved or partially received purchase orders can be cancelled",
+      400,
+      "INVALID_STATE_TRANSITION"
+    );
+  }
+
+  purchaseOrder.poStatus = PURCHASE_ORDER_STATUS.CANCELLED;
+  purchaseOrder.cancelReason =
+    reason || purchaseOrder.cancelReason || "Cancelled manually";
+  purchaseOrder.cancelledAt = new Date();
+  purchaseOrder.cancelledBy = req.user?._id || purchaseOrder.cancelledBy;
+
+  await purchaseOrder.save();
+
+  res.json({
+    success: true,
+    data: purchaseOrder,
+  });
+});
+
+// Record an overdue reminder/escalation trigger
+const remindPurchaseOrder = handleAsyncErrors(async (req, res) => {
+  const purchaseOrder = await PurchaseOrder.findById(req.params.id);
+  if (!purchaseOrder) {
+    throw new AppError("Purchase order not found", 404, "RESOURCE_NOT_FOUND");
+  }
+
+  const overdueInfo = buildOverdueInfo(purchaseOrder);
+
+  if (!overdueInfo.isOverdue) {
+    throw new AppError(
+      "Purchase order is not overdue for reminder",
+      400,
+      "INVALID_STATE_TRANSITION"
+    );
+  }
+
+  purchaseOrder.lastReminderAt = new Date();
+  purchaseOrder.reminderCount = (purchaseOrder.reminderCount || 0) + 1;
+  await purchaseOrder.save();
+
+  res.json({
+    success: true,
+    data: purchaseOrder,
+    reminder: {
+      lastReminderAt: purchaseOrder.lastReminderAt,
+      reminderCount: purchaseOrder.reminderCount,
+    },
+    overdue: overdueInfo,
+    message: "Reminder recorded for overdue purchase order",
   });
 });
 
@@ -331,4 +564,6 @@ module.exports = {
   updatePurchaseOrder,
   approvePurchaseOrder,
   closePurchaseOrder,
+  cancelPurchaseOrder,
+  remindPurchaseOrder,
 };

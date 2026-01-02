@@ -21,6 +21,8 @@ const purchaseOrderSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    expectedDeliveryDate: Date,
+    supplierLeadTime: Number,
     poStatus: {
       type: String,
       enum: Object.values(PURCHASE_ORDER_STATUS),
@@ -85,6 +87,23 @@ const purchaseOrderSchema = new mongoose.Schema(
       default: 0,
     },
     notes: String,
+    closeReason: String,
+    cancelReason: String,
+    closedAt: Date,
+    cancelledAt: Date,
+    closedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    cancelledBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    lastReminderAt: Date,
+    reminderCount: {
+      type: Number,
+      default: 0,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -103,7 +122,7 @@ const purchaseOrderSchema = new mongoose.Schema(
 // Indexes
 purchaseOrderSchema.index({ poNumber: 1 });
 purchaseOrderSchema.index({ supplierId: 1 });
-purchaseOrderSchema.index({ status: 1 });
+purchaseOrderSchema.index({ poStatus: 1 });
 purchaseOrderSchema.index({ date: 1 });
 
 module.exports = mongoose.model("PurchaseOrder", purchaseOrderSchema);
