@@ -1,22 +1,31 @@
 const moment = require("moment");
 
 class NumberingService {
-  async generateNumber(prefix, model) {
+  /**
+   * Generate a sequential number in the format: PREFIX-YYMM-####.
+   * Allows overriding the field name to match models that don't follow
+   * the `${prefix.toLowerCase()}Number` convention (e.g., voucherNumber).
+   */
+  async generateNumber(prefix, model, fieldName) {
     const yearMonth = moment().format("YYMM");
     const pattern = `${prefix}-${yearMonth}`;
+
+    const numberField = fieldName || `${prefix.toLowerCase()}Number`;
 
     // Find the last document with this pattern
     const lastDoc = await model
       .findOne({
-        [`${prefix.toLowerCase()}Number`]: new RegExp(`^${pattern}`),
+        [numberField]: new RegExp(`^${pattern}`),
       })
-      .sort({ [`${prefix.toLowerCase()}Number`]: -1 });
+      .sort({ [numberField]: -1 });
 
     let sequence = 1;
-    if (lastDoc) {
-      const lastNumber = lastDoc[`${prefix.toLowerCase()}Number`];
-      const lastSequence = parseInt(lastNumber.split("-").pop());
-      sequence = lastSequence + 1;
+    if (lastDoc?.[numberField]) {
+      const lastNumber = lastDoc[numberField];
+      const lastSequence = parseInt(lastNumber.split("-").pop(), 10);
+      if (!Number.isNaN(lastSequence)) {
+        sequence = lastSequence + 1;
+      }
     }
 
     return `${pattern}-${String(sequence).padStart(4, "0")}`;

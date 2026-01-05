@@ -32,12 +32,6 @@ const purchaseInvoiceSchema = new mongoose.Schema(
       ref: "PurchaseOrder",
       required: true,
     },
-    grnIds: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "GRN",
-      },
-    ],
     supplierId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Supplier",
@@ -103,6 +97,12 @@ const purchaseInvoiceSchema = new mongoose.Schema(
         lineTotal: Number,
         inwardRolls: Number,
         inwardMeters: Number,
+        rollDetails: [
+          {
+            rollQty: Number,
+            metersPerRoll: Number,
+          },
+        ],
       },
     ],
     subtotal: Number,

@@ -17,10 +17,6 @@ const batchSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "PurchaseInvoice",
     },
-    grnId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "GRN",
-    },
     manufactureDate: Date,
     expiryDate: Date,
     totalRolls: {

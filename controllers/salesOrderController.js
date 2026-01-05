@@ -139,10 +139,7 @@ const createSalesOrder = handleAsyncErrors(async (req, res) => {
       lengthMetersPerRoll: line.lengthMetersPerRoll,
       qtyRolls: line.qtyRolls,
       totalMeters: line.qtyRolls * line.lengthMetersPerRoll,
-      derivedRatePerRoll: pricing.derivedRatePerRoll,
       overrideRatePerRoll: line.overrideRatePerRoll,
-      finalRatePerRoll: pricing.finalRatePerRoll,
-      taxRate: sku.taxRate,
       lineTotal: lineTotal + lineTax,
     });
   }
@@ -245,10 +242,7 @@ const updateSalesOrder = handleAsyncErrors(async (req, res) => {
       lengthMetersPerRoll: line.lengthMetersPerRoll,
       qtyRolls: line.qtyRolls,
       totalMeters: line.qtyRolls * line.lengthMetersPerRoll,
-      derivedRatePerRoll: pricing.derivedRatePerRoll,
       overrideRatePerRoll: line.overrideRatePerRoll,
-      finalRatePerRoll: pricing.finalRatePerRoll,
-      taxRate: sku.taxRate,
       lineTotal: lineTotal + lineTax,
     });
   }
@@ -414,9 +408,7 @@ const calculatePricing = handleAsyncErrors(async (req, res) => {
       lengthMetersPerRoll: line.lengthMetersPerRoll,
       qtyRolls: line.qtyRolls,
       totalMeters: line.qtyRolls * line.lengthMetersPerRoll,
-      derivedRatePerRoll: pricing.derivedRatePerRoll,
       overrideRatePerRoll: line.overrideRatePerRoll,
-      finalRatePerRoll: pricing.finalRatePerRoll,
       requiresApproval: pricing.requiresApproval,
     });
   }

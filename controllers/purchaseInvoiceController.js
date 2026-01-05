@@ -1,6 +1,5 @@
 const PurchaseInvoice = require("../models/PurchaseInvoice");
 const PurchaseOrder = require("../models/PurchaseOrder");
-const GRN = require("../models/GRN");
 const Batch = require("../models/Batch");
 const Roll = require("../models/Roll");
 const Supplier = require("../models/Supplier");
@@ -13,6 +12,68 @@ const { handleAsyncErrors, AppError } = require("../utils/errorHandler");
 const toNumber = (value) => {
   const numeric = Number(value);
   return Number.isNaN(numeric) ? 0 : numeric;
+};
+
+const normalizeRollDetails = (rollDetails = []) => {
+  if (!Array.isArray(rollDetails)) return [];
+  return rollDetails
+    .map((detail = {}) => ({
+      rollQty: Math.max(toNumber(detail.rollQty), 0),
+      metersPerRoll: Math.max(toNumber(detail.metersPerRoll), 0),
+    }))
+    .filter((detail) => detail.rollQty > 0 && detail.metersPerRoll > 0);
+};
+
+const summarizeRollDetails = (rollDetails = []) => {
+  const normalized = normalizeRollDetails(rollDetails);
+  const totals = normalized.reduce(
+    (acc, detail) => {
+      acc.totalRolls += detail.rollQty;
+      acc.totalMeters += detail.rollQty * detail.metersPerRoll;
+      return acc;
+    },
+    { totalRolls: 0, totalMeters: 0 }
+  );
+
+  const avgMetersPerRoll =
+    totals.totalRolls > 0 ? totals.totalMeters / totals.totalRolls : 0;
+
+  return {
+    normalized,
+    totalRolls: totals.totalRolls,
+    totalMeters: totals.totalMeters,
+    avgMetersPerRoll,
+  };
+};
+
+const deriveRollMetrics = (line = {}) => {
+  const summary = summarizeRollDetails(line.rollDetails);
+  const rollCount =
+    summary.totalRolls ||
+    toNumber(line.inwardRolls) ||
+    toNumber(line.qtyRolls) ||
+    toNumber(line.receivedQty) ||
+    0;
+
+  const lengthPerRoll =
+    summary.avgMetersPerRoll ||
+    toNumber(line.lengthMetersPerRoll) ||
+    (rollCount > 0 && toNumber(line.totalMeters || line.inwardMeters)
+      ? toNumber(line.totalMeters || line.inwardMeters) / rollCount
+      : 0);
+
+  const totalMeters =
+    summary.totalMeters ||
+    toNumber(line.inwardMeters) ||
+    (lengthPerRoll && rollCount ? lengthPerRoll * rollCount : 0);
+
+  return {
+    rollCount,
+    lengthPerRoll,
+    totalMeters,
+    rollDetails: summary.normalized,
+    summary,
+  };
 };
 
 const buildPoLineKey = (line = {}) => {
@@ -117,34 +178,6 @@ const createPurchaseInvoice = handleAsyncErrors(async (req, res) => {
     );
   }
 
-  // Posted GRNs are mandatory for three-way matching
-  const postedGrns = await GRN.find({
-    purchaseOrderId,
-    status: STATUS.POSTED,
-  });
-
-  if (!postedGrns.length) {
-    throw new AppError(
-      "No posted GRNs found for this purchase order. Post a GRN before invoicing.",
-      400,
-      "VALIDATION_ERROR"
-    );
-  }
-
-  const grnIdSet = new Set();
-  const receivedByLineId = new Map();
-  postedGrns.forEach((grn) => {
-    grnIdSet.add(grn._id.toString());
-    (grn.lines || []).forEach((line = {}) => {
-      const poLineId = line.poLineId?.toString?.() || line.poLineId;
-      if (!poLineId) return;
-      receivedByLineId.set(
-        poLineId,
-        (receivedByLineId.get(poLineId) || 0) + toNumber(line.qtyRolls)
-      );
-    });
-  });
-
   const poLineById = new Map();
   const poLineByKey = new Map();
   (purchaseOrder.lines || []).forEach((line = {}) => {
@@ -186,25 +219,13 @@ const createPurchaseInvoice = handleAsyncErrors(async (req, res) => {
     const poLine = poLineById.get(poLineId);
     const orderedRolls = toNumber(poLine.qtyRolls);
     const alreadyInvoiced = toNumber(poLine.invoicedQty);
-    const receivedRolls = Math.max(
-      receivedByLineId.get(poLineId) || 0,
-      toNumber(poLine.receivedQty)
-    );
+    const remainingOrdered = Math.max(orderedRolls - alreadyInvoiced, 0);
 
-    if (receivedRolls <= 0) {
-      throw new AppError(
-        "No posted GRN quantity is available to invoice for one or more lines",
-        400,
-        "VALIDATION_ERROR"
-      );
-    }
+    const rollInfo = deriveRollMetrics(line);
 
-    const remainingReceipted = Math.max(
-      Math.min(orderedRolls, receivedRolls) - alreadyInvoiced,
-      0
-    );
-
-    const qty = toNumber(line.qtyRolls);
+    // Use roll count (never meters) for validation; do not mutate user-entered qty
+    const requestedQty = toNumber(line.qtyRolls) || rollInfo.rollCount;
+    const qty = requestedQty;
     if (qty <= 0) {
       throw new AppError(
         "Invoice quantity must be greater than zero",
@@ -213,9 +234,25 @@ const createPurchaseInvoice = handleAsyncErrors(async (req, res) => {
       );
     }
 
-    if (qty > remainingReceipted) {
+    if (remainingOrdered <= 0) {
       throw new AppError(
-        `Invoice quantity ${qty} exceeds remaining receipted quantity ${remainingReceipted} for the purchase order line`,
+        "All ordered quantity is already invoiced for one or more lines",
+        400,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    if (qty > remainingOrdered) {
+      throw new AppError(
+        `Invoice quantity ${qty} exceeds remaining ordered quantity ${remainingOrdered} for the purchase order line`,
+        400,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    if (rollInfo.rollCount > remainingOrdered) {
+      throw new AppError(
+        `Roll quantity ${rollInfo.rollCount} exceeds remaining ordered quantity ${remainingOrdered} for the purchase order line`,
         400,
         "VALIDATION_ERROR"
       );
@@ -224,18 +261,20 @@ const createPurchaseInvoice = handleAsyncErrors(async (req, res) => {
     const rate = toNumber(line.ratePerRoll) || toNumber(poLine.ratePerRoll);
     const taxRate = toNumber(line.taxRate ?? poLine.taxRate ?? 0);
     const lengthMetersPerRoll =
-      toNumber(line.lengthMetersPerRoll) ||
+      rollInfo.lengthPerRoll ||
       toNumber(poLine.lengthMetersPerRoll);
-    const inwardRolls = toNumber(line.inwardRolls) || qty;
+    const inwardRolls = rollInfo.rollCount || qty;
     const inwardMeters =
+      rollInfo.totalMeters ||
       toNumber(line.inwardMeters) ||
       inwardRolls * (lengthMetersPerRoll || 0) ||
       0;
     const totalMeters =
+      rollInfo.totalMeters ||
       toNumber(line.totalMeters) ||
       qty * (lengthMetersPerRoll || 0);
 
-    const lineBaseTotal = qty * rate;
+    const lineBaseTotal = totalMeters * rate; // price on meters
     const lineTax = lineBaseTotal * (taxRate / 100);
 
     subtotal += lineBaseTotal;
@@ -259,7 +298,8 @@ const createPurchaseInvoice = handleAsyncErrors(async (req, res) => {
       totalMeters,
       inwardRolls,
       inwardMeters,
-      lineTotal: lineBaseTotal + lineTax,
+      rollDetails: rollInfo.rollDetails,
+      lineTotal: lineBaseTotal, // keep per-line amount tax-exclusive; GST handled at invoice level
     };
   });
 
@@ -296,7 +336,6 @@ const createPurchaseInvoice = handleAsyncErrors(async (req, res) => {
     supplierInvoiceNumber,
     supplierChallanNumber,
     purchaseOrderId,
-    grnIds: Array.from(grnIdSet),
     supplierId: purchaseOrder.supplierId,
     supplierName: purchaseOrder.supplierName,
     date: date ? new Date(date) : new Date(),
@@ -440,17 +479,8 @@ const createRollsForPurchaseInvoice = async (purchaseInvoice) => {
 
   const totalMetersAcrossLines = (purchaseInvoice.lines || []).reduce(
     (sum, line) => {
-      const rollCount =
-        Number(line.inwardRolls) ||
-        Number(line.qtyRolls) ||
-        Number(line.receivedQty) ||
-        1;
-      const perRollLength =
-        Number(line.lengthMetersPerRoll) ||
-        (Number(line.totalMeters) && rollCount
-          ? Number(line.totalMeters) / rollCount
-          : 0);
-      const lineMeters = perRollLength * rollCount;
+      const { totalMeters } = deriveRollMetrics(line);
+      const lineMeters = totalMeters || 0;
       return sum + (Number(lineMeters) || 0);
     },
     0
@@ -464,35 +494,41 @@ const createRollsForPurchaseInvoice = async (purchaseInvoice) => {
   const preparedRolls = [];
 
   for (const line of purchaseInvoice.lines || []) {
-    // Use roll quantity from PI line: inwardRolls > qtyRolls > receivedQty > 1
-    const rollCount =
-      Number(line.inwardRolls) ||
-      Number(line.qtyRolls) ||
-      Number(line.receivedQty) ||
-      1;
-    const lengthPerRoll =
-      Number(line.lengthMetersPerRoll) ||
-      (Number(line.totalMeters) && rollCount
-        ? Number(line.totalMeters) / rollCount
-        : 0) ||
-      0;
+    const { rollCount, lengthPerRoll, rollDetails } = deriveRollMetrics(line);
     const width = Number(line.widthInches || line.width || 0);
 
-    if (!rollCount || !lengthPerRoll || ![24, 36, 44, 63].includes(width)) {
+    if (!rollCount || ![24, 36, 44, 63].includes(width)) {
       continue;
     }
 
     const rate = Number(line.ratePerRoll) || 0;
-    const baseCostPerMeter =
-      lengthPerRoll > 0 ? rate / lengthPerRoll : 0;
-    const landedCostPerMeter = baseCostPerMeter + overheadPerMeter;
 
-    for (let i = 0; i < rollCount; i++) {
+    const rollEntries = [];
+    if (rollDetails && rollDetails.length) {
+      rollDetails.forEach((detail) => {
+        for (let i = 0; i < detail.rollQty; i++) {
+          rollEntries.push(detail.metersPerRoll);
+        }
+      });
+    } else {
+      for (let i = 0; i < rollCount; i++) {
+        rollEntries.push(lengthPerRoll || 0);
+      }
+    }
+
+    for (const rollLength of rollEntries) {
+      const normalizedLength = Number(rollLength) || 0;
+      if (!normalizedLength) continue;
+
       const seq = preparedRolls.length + 1;
       const rollNumber = `${purchaseInvoice.piNumber}-R${String(seq).padStart(
         4,
         "0"
       )}`;
+
+      const baseCostPerMeter =
+        normalizedLength > 0 ? rate / normalizedLength : 0;
+      const landedCostPerMeter = baseCostPerMeter + overheadPerMeter;
 
       preparedRolls.push({
         rollNumber,
@@ -504,13 +540,13 @@ const createRollsForPurchaseInvoice = async (purchaseInvoice) => {
         qualityName: line.qualityName,
         gsm: line.gsm,
         widthInches: width,
-        originalLengthMeters: lengthPerRoll,
-        currentLengthMeters: lengthPerRoll,
+        originalLengthMeters: normalizedLength,
+        currentLengthMeters: normalizedLength,
         status: line.skuId ? "Mapped" : "Unmapped",
         baseCostPerMeter,
         landedCostPerMeter,
         totalLandedCost:
-          Math.round(landedCostPerMeter * lengthPerRoll * 100) / 100,
+          Math.round(landedCostPerMeter * normalizedLength * 100) / 100,
         poLineId: line.poLineId,
       });
     }
@@ -576,23 +612,17 @@ const updatePurchaseOrderBalances = async (purchaseInvoice) => {
     }
     if (!id) return;
 
-    const rollCount =
-      Number(line.inwardRolls) ||
-      Number(line.qtyRolls) ||
-      Number(line.receivedQty) ||
-      0;
-    const perRollMeters =
-      Number(line.lengthMetersPerRoll) ||
-      (rollCount > 0 && Number(line.totalMeters)
-        ? Number(line.totalMeters) / rollCount
-        : 0);
-    const addMeters = perRollMeters * rollCount;
+    const { rollCount, lengthPerRoll, totalMeters } = deriveRollMetrics(line);
+    const resolvedRollCount = rollCount || 0;
+    const resolvedMeters =
+      totalMeters ||
+      (resolvedRollCount > 0 ? lengthPerRoll * resolvedRollCount : 0);
 
     const existing = updatesByLineId.get(id) || 0;
-    updatesByLineId.set(id, existing + rollCount);
+    updatesByLineId.set(id, existing + resolvedRollCount);
 
     const existingMeters = metersByLineId.get(id) || 0;
-    metersByLineId.set(id, existingMeters + addMeters);
+    metersByLineId.set(id, existingMeters + resolvedMeters);
   });
 
   const updatedLines = lines.map((line) => {
@@ -708,10 +738,33 @@ const ensurePurchaseInvoiceVoucher = async (purchaseInvoice, userId) => {
     if (existing) return existing;
   }
 
+  // Ensure required ledgers exist (auto-create system ledgers if missing)
+  const systemLedgerDefaults = {
+    INVENTORY: { name: "Inventory", group: "Assets" },
+    INPUT_TAX: { name: "Input Tax", group: "Assets" },
+    AP: { name: "Accounts Payable", group: "Liabilities" },
+  };
+
+  const ensureSystemLedger = async (code) => {
+    const existing = await Ledger.findOne({ ledgerCode: code });
+    if (existing) return existing;
+    const defaults = systemLedgerDefaults[code];
+    if (!defaults) {
+      throw new AppError(`Ledger not configured: ${code}`, 500, "CONFIG_ERROR");
+    }
+    return Ledger.create({
+      ledgerCode: code,
+      name: defaults.name,
+      group: defaults.group,
+      isSystemLedger: true,
+      active: true,
+    });
+  };
+
   const [inventoryLedger, inputTaxLedger, apLedger] = await Promise.all([
-    getLedgerByCode("INVENTORY"),
-    getLedgerByCode("INPUT_TAX"),
-    getLedgerByCode("AP"),
+    ensureSystemLedger("INVENTORY"),
+    ensureSystemLedger("INPUT_TAX"),
+    ensureSystemLedger("AP"),
   ]);
 
   const inventoryDebit =
@@ -726,7 +779,8 @@ const ensurePurchaseInvoiceVoucher = async (purchaseInvoice, userId) => {
 
   const voucherNumber = await numberingService.generateNumber(
     "VCH",
-    Voucher
+    Voucher,
+    "voucherNumber"
   );
 
   const voucher = await Voucher.create({

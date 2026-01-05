@@ -78,10 +78,6 @@ const rollSchema = new mongoose.Schema(
     //   type: Object, // Will store complete QR data
     // },
     qrCode: String,
-    grnId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "GRN",
-    },
     poLineId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "PurchaseOrderLine",

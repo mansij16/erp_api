@@ -1,5 +1,4 @@
 const Roll = require("../models/Roll");
-const Batch = require("../models/Batch");
 const SKU = require("../models/SKU");
 const Product = require("../models/Product");
 const AppError = require("../utils/AppError");
@@ -7,56 +6,6 @@ const mongoose = require("mongoose");
 const numberingService = require("./numberingService");
 
 class RollService {
-  async createRollsFromGRN(grnData, session = null) {
-    const rolls = [];
-
-    // Create or get batch
-    let batch;
-    if (grnData.batchId) {
-      batch = await Batch.findById(grnData.batchId);
-    } else {
-      batch = await Batch.create(
-        [
-          {
-            supplierId: grnData.supplierId,
-            grnId: grnData._id,
-            notes: grnData.notes,
-          },
-        ],
-        { session }
-      );
-      batch = batch[0];
-    }
-
-    for (const line of grnData.lines) {
-      for (let i = 0; i < line.acceptedQuantity; i++) {
-        const rollData = {
-          batchId: batch._id,
-          supplierId: grnData.supplierId,
-          widthInches: line.width,
-          originalLengthMeters: line.lengthPerRoll,
-          currentLengthMeters: line.lengthPerRoll,
-          status: line.skuId ? "Mapped" : "Unmapped",
-          skuId: line.skuId || null,
-          grnId: grnData._id,
-          poLineId: line.poLineId,
-          baseCostPerMeter: line.rate / line.lengthPerRoll,
-          gsm: line.gsm,
-          qualityGrade: line.quality,
-        };
-
-        const roll = await Roll.create([rollData], { session });
-        rolls.push(roll[0]);
-      }
-    }
-
-    // Update batch total rolls
-    batch.totalRolls = rolls.length;
-    await batch.save({ session });
-
-    return { batch, rolls };
-  }
-
   async mapUnmappedRolls(mappings) {
     const session = await mongoose.startSession();
     session.startTransaction();
@@ -222,7 +171,6 @@ class RollService {
         landedCostPerMeter: roll.landedCostPerMeter || 0,
         totalLandedCost: roll.totalLandedCost || 0,
         barcode: roll.barcode,
-        grnId: roll.grnId,
         poLineId: roll.poLineId,
       });
     }
