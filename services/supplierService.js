@@ -73,6 +73,11 @@ const sanitizeCategoryRates = (rates = []) => {
 };
 
 class SupplierService {
+  async getNextSupplierCode() {
+    const count = await Supplier.countDocuments();
+    return `SUP${(count + 1).toString().padStart(5, "0")}`;
+  }
+
   async createSupplier(data) {
     // Check for duplicate GSTIN
     const existingSupplier = await Supplier.findOne({ gstin: data.gstin });
@@ -103,10 +108,6 @@ class SupplierService {
       query.active = filters.active;
     }
 
-    if (filters.preferredSupplier !== undefined) {
-      query.preferredSupplier = filters.preferredSupplier;
-    }
-
     if (filters.category) {
       query.categories = filters.category;
     }
@@ -128,7 +129,7 @@ class SupplierService {
       .populate("categories")
       .populate("products")
       .populate("categoryRates.categoryId", "name code")
-      .sort({ preferredSupplier: -1, name: 1 });
+      .sort({ name: 1 });
 
     if (hasLimit && limit) {
       supplierQuery.skip(skip).limit(limit);
@@ -273,7 +274,7 @@ class SupplierService {
       active: true,
     })
       .populate("categoryRates.categoryId", "name code")
-      .sort({ preferredSupplier: -1, rating: -1 });
+      .sort({ rating: -1 });
 
     return suppliers;
   }

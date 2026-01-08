@@ -305,7 +305,6 @@ const seedData = async () => {
           ],
           paymentTerms: { creditDays: 30, creditLimit: 1000000 },
           leadTime: 7,
-          preferredSupplier: true,
           active: true,
         },
         {
@@ -330,7 +329,6 @@ const seedData = async () => {
           ],
           paymentTerms: { creditDays: 15, creditLimit: 500000 },
           leadTime: 10,
-          preferredSupplier: false,
           active: true,
         },
       ]);

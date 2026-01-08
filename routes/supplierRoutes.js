@@ -7,6 +7,7 @@ const supplierController = require("../controllers/supplierController");
 
 // Public routes
 router.get("/", supplierController.getAllSuppliers);
+router.get("/next-code", supplierController.getNextSupplierCode);
 router.get("/:id", supplierController.getSupplierById);
 router.get("/code/:code", supplierController.getSupplierByCode);
 router.get("/product/:productId", supplierController.getSuppliersByProduct);

@@ -2,6 +2,15 @@ const supplierService = require("../services/supplierService");
 const catchAsync = require("../utils/catchAsync");
 
 class SupplierController {
+  getNextSupplierCode = catchAsync(async (req, res) => {
+    const code = await supplierService.getNextSupplierCode();
+
+    res.status(200).json({
+      success: true,
+      data: { supplierCode: code },
+    });
+  });
+
   createSupplier = catchAsync(async (req, res) => {
     const supplier = await supplierService.createSupplier(req.body);
 
@@ -20,7 +29,6 @@ class SupplierController {
           : req.query.active === "false"
           ? false
           : undefined,
-      preferredSupplier: req.query.preferredSupplier === "true",
       category: req.query.category,
       search: req.query.search,
     };

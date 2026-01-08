@@ -6,7 +6,6 @@ const supplierSchema = new mongoose.Schema(
       type: String,
       unique: true,
       uppercase: true,
-      required: [true, "Supplier code is required"],
       trim: true,
     },
     name: {
@@ -44,13 +43,6 @@ const supplierSchema = new mongoose.Schema(
         isPrimary: { type: Boolean, default: false },
       },
     ],
-    bankDetails: {
-      accountName: String,
-      accountNumber: String,
-      bankName: String,
-      branch: String,
-      ifscCode: String,
-    },
     paymentTerms: {
       creditDays: {
         type: Number,
@@ -76,10 +68,6 @@ const supplierSchema = new mongoose.Schema(
       min: 1,
       max: 5,
       default: 3,
-    },
-    preferredSupplier: {
-      type: Boolean,
-      default: false,
     },
     categories: [
       {
@@ -124,7 +112,19 @@ const supplierSchema = new mongoose.Schema(
 supplierSchema.index({ supplierCode: 1 });
 supplierSchema.index({ gstin: 1 });
 supplierSchema.index({ active: 1 });
-supplierSchema.index({ preferredSupplier: 1 });
 supplierSchema.index({ "categoryRates.categoryId": 1 });
+
+// Generate supplier code
+supplierSchema.pre("save", async function (next) {
+  if (!this.supplierCode && this.isNew) {
+    try {
+      const count = await this.constructor.countDocuments();
+      this.supplierCode = `SUP${(count + 1).toString().padStart(5, "0")}`;
+    } catch (error) {
+      return next(error);
+    }
+  }
+  next();
+});
 
 module.exports = mongoose.model("Supplier", supplierSchema);
