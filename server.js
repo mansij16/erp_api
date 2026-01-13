@@ -113,41 +113,6 @@ mongoose
   })
   .then(() => {
     console.log("MongoDB connected successfully");
-
-    // Ensure barcode index is partial & unique only when present (drops legacy unique null index)
-    Roll.updateMany({ barcode: null }, { $unset: { barcode: "" } })
-      .catch(() => null)
-      .then(() =>
-        Roll.collection
-          .dropIndex("barcode_1")
-          .catch(() => null)
-          .then(() =>
-            Roll.collection.createIndex(
-              { barcode: 1 },
-              {
-                name: "barcode_sparse_unique",
-                unique: true,
-                partialFilterExpression: { barcode: { $type: "string" } },
-              }
-            )
-          )
-      )
-      .catch((err) =>
-        console.warn("Warning: could not ensure roll barcode index", err.message)
-      );
-
-    if (process.env.SEED_DB === "true") {
-      const seederPath = path.resolve(__dirname, "seeds", "seedMasterData.js");
-      console.log("Starting database seeder:", seederPath);
-      const child = fork(seederPath, [], { stdio: "inherit" });
-      child.on("exit", (code) => {
-        if (code === 0) {
-          console.log("Database seeding completed successfully.");
-        } else {
-          console.error("Database seeding failed with code:", code);
-        }
-      });
-    }
   })
   .catch((err) => console.error("MongoDB connection error:", err));
 
