@@ -1,114 +1,70 @@
 {
-    "taskDefinitionArn": "arn:aws:ecs:ap-south-1:704098412757:task-definition/erp-backend-service-stage:1",
-    "containerDefinitions": [
+  "containerDefinitions": [
+    {
+      "name": "erp-backend-service-stage",
+      "image": "704098412757.dkr.ecr.ap-south-1.amazonaws.com/stage/erp-web-app",
+      "cpu": 0,
+      "portMappings": [
         {
-            "name": "erp-backend-service-stage",
-            "image": "704098412757.dkr.ecr.ap-south-1.amazonaws.com/stage/erp-web-app",
-            "cpu": 0,
-            "portMappings": [
-                {
-                    "name": "erp-backend-service-5000-tcp",
-                    "containerPort": 5000,
-                    "hostPort": 5000,
-                    "protocol": "tcp",
-                    "appProtocol": "http"
-                }
-            ],
-            "essential": true,
-            "restartPolicy": {
-                "enabled": false,
-                "restartAttemptPeriod": 600
-            },
-            "environment": [],
-            "mountPoints": [],
-            "volumesFrom": [],
-            "logConfiguration": {
-                "logDriver": "awslogs",
-                "options": {
-                    "awslogs-group": "erp-stage-cluster",
-                    "awslogs-region": "ap-south-1",
-                    "awslogs-stream-prefix": "ecs"
-                }
-            },
-            "systemControls": []
-        },
-        {
-            "name": "aws-otel-collector",
-            "image": "public.ecr.aws/aws-observability/aws-otel-collector:v0.46.0",
-            "cpu": 0,
-            "portMappings": [],
-            "essential": true,
-            "command": [
-                "--config=/etc/ecs/ecs-cloudwatch.yaml"
-            ],
-            "environment": [],
-            "mountPoints": [],
-            "volumesFrom": [],
-            "logConfiguration": {
-                "logDriver": "awslogs",
-                "options": {
-                    "awslogs-group": "erp-stage-cluster",
-                    "mode": "non-blocking",
-                    "max-buffer-size": "25m",
-                    "awslogs-region": "ap-south-1",
-                    "awslogs-stream-prefix": "ecs"
-                }
-            },
-            "systemControls": []
+          "name": "erp-backend-service-5000-tcp",
+          "containerPort": 5000,
+          "hostPort": 5000,
+          "protocol": "tcp",
+          "appProtocol": "http"
         }
-    ],
-    "family": "erp-backend-service-stage",
-    "executionRoleArn": "arn:aws:iam::704098412757:role/ecsTaskExecutionRole",
-    "networkMode": "awsvpc",
-    "revision": 1,
-    "volumes": [],
-    "status": "ACTIVE",
-    "requiresAttributes": [
-        {
-            "name": "com.amazonaws.ecs.capability.logging-driver.awslogs"
-        },
-        {
-            "name": "ecs.capability.execution-role-awslogs"
-        },
-        {
-            "name": "com.amazonaws.ecs.capability.ecr-auth"
-        },
-        {
-            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.19"
-        },
-        {
-            "name": "ecs.capability.container-restart-policy"
-        },
-        {
-            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.28"
-        },
-        {
-            "name": "ecs.capability.execution-role-ecr-pull"
-        },
-        {
-            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.18"
-        },
-        {
-            "name": "ecs.capability.task-eni"
+      ],
+      "essential": true,
+      "environment": [],
+      "mountPoints": [],
+      "volumesFrom": [],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "erp-stage-cluster",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "ecs"
         }
-    ],
-    "placementConstraints": [],
-    "compatibilities": [
-        "EC2",
-        "FARGATE",
-        "MANAGED_INSTANCES"
-    ],
-    "requiresCompatibilities": [
-        "FARGATE"
-    ],
-    "cpu": "2048",
-    "memory": "4096",
-    "runtimePlatform": {
-        "cpuArchitecture": "X86_64",
-        "operatingSystemFamily": "LINUX"
+      },
+      "systemControls": []
     },
-    "registeredAt": "2026-01-16T21:15:46.118Z",
-    "registeredBy": "arn:aws:iam::704098412757:root",
-    "enableFaultInjection": false,
-    "tags": []
+    {
+      "name": "aws-otel-collector",
+      "image": "public.ecr.aws/aws-observability/aws-otel-collector:v0.46.0",
+      "cpu": 0,
+      "portMappings": [],
+      "essential": true,
+      "command": [
+        "--config=/etc/ecs/ecs-cloudwatch.yaml"
+      ],
+      "environment": [],
+      "mountPoints": [],
+      "volumesFrom": [],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "erp-stage-cluster",
+          "mode": "non-blocking",
+          "max-buffer-size": "25m",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "systemControls": []
+    }
+  ],
+  "family": "erp-backend-service-stage",
+  "executionRoleArn": "arn:aws:iam::704098412757:role/ecsTaskExecutionRole",
+  "networkMode": "awsvpc",
+  "volumes": [],
+  "placementConstraints": [],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "2048",
+  "memory": "4096",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "tags": []
 }
