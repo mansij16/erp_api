@@ -7,12 +7,13 @@ on:
       - stage
 
 jobs:
-  build-and-push:
+  Deploy-erp-backend-stage:
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/stage'
 
     env:
       AWS_REGION: ap-south-1
-      ECR_REPOSITORY: stage/erp-web-app  
+      ECR_REPOSITORY: stage/erp-web-app
       IMAGE_TAG: ${{ github.sha }}
 
     steps:
@@ -26,18 +27,26 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Fetch secrets and create .env
+        run: |
+          echo "Fetching secrets from AWS Secrets Manager..."
+          ERP_STAGE=$(aws secretsmanager get-secret-value --secret-id core-service-secret --region ap-south-1 --query SecretString --output text)
+          
+          echo "Creating .env file..."
+          echo "ERP_STAGE=$ERP_STAGE" >> .env
+
+          echo "Printing .env file..."
+          cat .env
+
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build Docker image
+      - name: Build, Tag, and Push Docker Image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
         run: |
-          docker build \
-            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} \
-            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest \
-            .
-
-      - name: Push Docker image to ECR
-        run: |
-          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
-          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
