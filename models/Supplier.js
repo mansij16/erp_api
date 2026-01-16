@@ -21,6 +21,19 @@ const supplierSchema = new mongoose.Schema(
         "Invalid GSTIN format",
       ],
     },
+    phone: {
+      type: Number,
+      required: [true, "Phone number is required"],
+    },
+    whatsappNumber: {
+      type: Number,
+    },
+    email: {
+      type: String,
+      required: [true, "Email is required"],
+      lowercase: true,
+      trim: true,
+    },
     addressline1: {
       type: String,
       required: true,

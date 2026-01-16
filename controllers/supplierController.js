@@ -178,6 +178,74 @@ class SupplierController {
       data: result,
     });
   });
+
+  // =====================
+  // Contact Person Methods
+  // =====================
+
+  getSupplierContactPersons = catchAsync(async (req, res) => {
+    const contactPersons = await supplierService.getSupplierContactPersons(
+      req.params.id
+    );
+
+    res.status(200).json({
+      success: true,
+      count: contactPersons.length,
+      data: contactPersons,
+    });
+  });
+
+  createSupplierContactPerson = catchAsync(async (req, res) => {
+    const contactPerson = await supplierService.createSupplierContactPerson(
+      req.params.id,
+      req.body
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Contact person created successfully",
+      data: contactPerson,
+    });
+  });
+
+  updateSupplierContactPerson = catchAsync(async (req, res) => {
+    const contactPerson = await supplierService.updateSupplierContactPerson(
+      req.params.id,
+      req.params.contactPersonId,
+      req.body
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Contact person updated successfully",
+      data: contactPerson,
+    });
+  });
+
+  deleteSupplierContactPerson = catchAsync(async (req, res) => {
+    await supplierService.deleteSupplierContactPerson(
+      req.params.id,
+      req.params.contactPersonId
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Contact person deleted successfully",
+    });
+  });
+
+  setSupplierContactPersonPrimary = catchAsync(async (req, res) => {
+    const contactPerson = await supplierService.setSupplierContactPersonPrimary(
+      req.params.id,
+      req.params.contactPersonId
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Contact person set as primary",
+      data: contactPerson,
+    });
+  });
 }
 
 module.exports = new SupplierController();

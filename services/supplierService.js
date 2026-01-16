@@ -1,6 +1,7 @@
 const Supplier = require("../models/Supplier");
 const BaseRate = require("../models/BaseRate");
 const RateHistory = require("../models/RateHistory");
+const ContactPerson = require("../models/ContactPerson");
 const AppError = require("../utils/AppError");
 
 class SupplierService {
@@ -333,6 +334,139 @@ class SupplierService {
     }
 
     return results;
+  }
+
+  // =====================
+  // Contact Person Methods
+  // =====================
+
+  /**
+   * Get all contact persons for a supplier
+   */
+  async getSupplierContactPersons(supplierId) {
+    const supplier = await Supplier.findById(supplierId);
+    if (!supplier) {
+      throw new AppError("Supplier not found", 404);
+    }
+
+    const contactPersons = await ContactPerson.find({ supplierId })
+      .sort({ isPrimary: -1, contactPersonName: 1 });
+
+    return contactPersons;
+  }
+
+  /**
+   * Create a contact person for a supplier
+   */
+  async createSupplierContactPerson(supplierId, data) {
+    const supplier = await Supplier.findById(supplierId);
+    if (!supplier) {
+      throw new AppError("Supplier not found", 404);
+    }
+
+    // If this is marked as primary, unset primary on all other contacts
+    if (data.isPrimary) {
+      await ContactPerson.updateMany(
+        { supplierId, isPrimary: true },
+        { isPrimary: false }
+      );
+    }
+
+    // If this is the first contact person, make it primary by default
+    const existingCount = await ContactPerson.countDocuments({ supplierId });
+    if (existingCount === 0) {
+      data.isPrimary = true;
+    }
+
+    const contactPerson = await ContactPerson.create({
+      ...data,
+      supplierId,
+      customerId: null, // Ensure this is a supplier contact
+    });
+
+    return contactPerson;
+  }
+
+  /**
+   * Update a contact person
+   */
+  async updateSupplierContactPerson(supplierId, contactPersonId, data) {
+    const contactPerson = await ContactPerson.findOne({
+      _id: contactPersonId,
+      supplierId,
+    });
+
+    if (!contactPerson) {
+      throw new AppError("Contact person not found for this supplier", 404);
+    }
+
+    // If setting this as primary, unset primary on all other contacts
+    if (data.isPrimary && !contactPerson.isPrimary) {
+      await ContactPerson.updateMany(
+        { supplierId, isPrimary: true, _id: { $ne: contactPersonId } },
+        { isPrimary: false }
+      );
+    }
+
+    // Update the contact person
+    Object.assign(contactPerson, data);
+    await contactPerson.save();
+
+    return contactPerson;
+  }
+
+  /**
+   * Delete a contact person
+   */
+  async deleteSupplierContactPerson(supplierId, contactPersonId) {
+    const contactPerson = await ContactPerson.findOne({
+      _id: contactPersonId,
+      supplierId,
+    });
+
+    if (!contactPerson) {
+      throw new AppError("Contact person not found for this supplier", 404);
+    }
+
+    const wasPrimary = contactPerson.isPrimary;
+    await ContactPerson.findByIdAndDelete(contactPersonId);
+
+    // If the deleted contact was primary, make another one primary
+    if (wasPrimary) {
+      const nextContact = await ContactPerson.findOne({ supplierId });
+      if (nextContact) {
+        nextContact.isPrimary = true;
+        await nextContact.save();
+      }
+    }
+
+    return { message: "Contact person deleted successfully" };
+  }
+
+  /**
+   * Set a contact person as primary
+   */
+  async setSupplierContactPersonPrimary(supplierId, contactPersonId) {
+    const contactPerson = await ContactPerson.findOne({
+      _id: contactPersonId,
+      supplierId,
+    });
+
+    if (!contactPerson) {
+      throw new AppError("Contact person not found for this supplier", 404);
+    }
+
+    // Unset primary on all other contacts
+    await ContactPerson.updateMany(
+      { supplierId, isPrimary: true, _id: { $ne: contactPersonId } },
+      { isPrimary: false }
+    );
+
+    // Set this contact as primary
+    contactPerson.isPrimary = true;
+    await contactPerson.save();
+
+    return contactPerson;
   }
 }
 

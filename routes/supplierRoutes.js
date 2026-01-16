@@ -19,6 +19,13 @@ router.delete("/:id/base-rates/:baseRateId", supplierController.deleteSupplierBa
 router.get("/:id/base-rates/:baseRateId/history", supplierController.getSupplierBaseRateHistory);
 router.get("/:id/rate-history", supplierController.getAllSupplierRateHistory);
 
+// Contact Person routes
+router.get("/:id/contact-persons", supplierController.getSupplierContactPersons);
+router.post("/:id/contact-persons", supplierController.createSupplierContactPerson);
+router.patch("/:id/contact-persons/:contactPersonId", supplierController.updateSupplierContactPerson);
+router.delete("/:id/contact-persons/:contactPersonId", supplierController.deleteSupplierContactPerson);
+router.patch("/:id/contact-persons/:contactPersonId/set-primary", supplierController.setSupplierContactPersonPrimary);
+
 // Admin/Manager routes
 // router.use(authorize(["admin", "super_admin", "purchase_manager"]));
 
