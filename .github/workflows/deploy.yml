@@ -15,6 +15,7 @@ jobs:
       AWS_REGION: ap-south-1
       ECR_REPOSITORY: stage/erp-web-app
       IMAGE_TAG: ${{ github.sha }}
+      AWS_REGION: ap-south-1
 
     steps:
       - name: Checkout source
@@ -95,4 +96,4 @@ jobs:
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          
+
