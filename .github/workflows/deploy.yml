@@ -64,7 +64,7 @@ jobs:
           jq --arg image "$NEW_IMAGE_TAG_NAME" '.containerDefinitions[1].image=$image' erp-backend-service-stage > "$tmp" && mv "$tmp" erp-backend-service-stage
           chmod 777 erp-backend-service-stage.json
 
-      - name: Update ECS service for Django
+      - name: Update ECS service for Erp Backend Service
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           task-definition: erp-backend-service-stage.json
