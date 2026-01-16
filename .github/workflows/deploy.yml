@@ -48,6 +48,7 @@ jobs:
         run: |
           docker build -f Docker.stage -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} \
           -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:stage.${{ github.run_number }} \
+          .
 
       - name: Push Docker image to Amazon ECR
         run: |
