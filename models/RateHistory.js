@@ -2,42 +2,15 @@ const mongoose = require("mongoose");
 
 const rateHistorySchema = new mongoose.Schema(
   {
-    customerId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Customer",
-      required: true,
-    },
-    soId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "SalesOrder",
-    },
-    siId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "SalesInvoice",
-    },
-    productId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Product",
-    },
-    effectiveRate44: {
+    rateHistoryId: {
       type: Number,
-      required: true,
+      unique: true,
     },
-    appliedWidth: Number,
-    isOverride: {
-      type: Boolean,
-      default: false,
-    },
-    overriddenBy: {
+    baseRateId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: "BaseRate",
+      required: [true, "Base rate is required"],
     },
-    overrideReason: String,
-    isSpecialDeal: {
-      type: Boolean,
-      default: false,
-    },
-    dealNotes: String,
   },
   {
     timestamps: true,
@@ -46,8 +19,32 @@ const rateHistorySchema = new mongoose.Schema(
   }
 );
 
-rateHistorySchema.index({ customerId: 1, createdAt: -1 });
-rateHistorySchema.index({ soId: 1 });
-rateHistorySchema.index({ siId: 1 });
+// Indexes
+rateHistorySchema.index({ rateHistoryId: 1 });
+rateHistorySchema.index({ baseRateId: 1 });
+
+// Auto-generate rateHistoryId
+rateHistorySchema.pre("save", async function (next) {
+  if (!this.rateHistoryId && this.isNew) {
+    try {
+      const lastDoc = await this.constructor
+        .findOne()
+        .sort({ rateHistoryId: -1 })
+        .select("rateHistoryId");
+      this.rateHistoryId = lastDoc ? lastDoc.rateHistoryId + 1 : 1;
+    } catch (error) {
+      return next(error);
+    }
+  }
+  next();
+});
+
+// Virtual to populate baseRate
+rateHistorySchema.virtual("baseRate", {
+  ref: "BaseRate",
+  localField: "baseRateId",
+  foreignField: "_id",
+  justOne: true,
+});
 
 module.exports = mongoose.model("RateHistory", rateHistorySchema);

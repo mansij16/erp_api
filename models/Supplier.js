@@ -21,81 +21,24 @@ const supplierSchema = new mongoose.Schema(
         "Invalid GSTIN format",
       ],
     },
-    pan: {
+    addressline1: {
       type: String,
-      match: [/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/, "Invalid PAN format"],
+      required: true,
     },
+    addressline2: {
+      type: String,
+      required: true,
+    },
+    city: { type: String, required: true },
     state: {
       type: String,
       required: true,
     },
-    address: {
-      line1: { type: String, required: true },
-      line2: String,
-      city: { type: String, required: true },
-      pincode: { type: String, required: true },
+    country: {
+      type: String,
+      required: true,
     },
-    contactPersons: [
-      {
-        name: { type: String, required: true },
-        designation: String,
-        phone: { type: String, required: true },
-        isPrimary: { type: Boolean, default: false },
-      },
-    ],
-    paymentTerms: {
-      creditDays: {
-        type: Number,
-        default: 30,
-        min: 0,
-      },
-      creditLimit: {
-        type: Number,
-        default: 0,
-        min: 0,
-      },
-    },
-    leadTime: {
-      type: Number, // in days
-      default: 7,
-    },
-    minimumOrderValue: {
-      type: Number,
-      default: 0,
-    },
-    rating: {
-      type: Number,
-      min: 1,
-      max: 5,
-      default: 3,
-    },
-    categories: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Category",
-      },
-    ],
-    categoryRates: [
-      {
-        categoryId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Category",
-          required: true,
-        },
-        baseRate: {
-          type: Number,
-          default: 0,
-          min: 0,
-        },
-      },
-    ],
-    products: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Product",
-      },
-    ],
-    notes: String,
+    pincode: { type: String, required: true },
     active: {
       type: Boolean,
       default: true,
