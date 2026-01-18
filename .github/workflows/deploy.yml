@@ -119,7 +119,6 @@ jobs:
           docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
           docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:prod.${{ github.run_number }}
 
-<<<<<<< HEAD
       - name: Replacing Image tag in Task def
         run: |
           set -e
@@ -135,9 +134,5 @@ jobs:
           task-definition: erp-backend-service-prod.json
           cluster: ${{ vars.PROD_ECS_CLUSTER_NAME }}
           service: ${{ vars.PROD_ECS_SERVICE_NAME }}
-=======
-
-          
->>>>>>> e1ffb14b3a10d72ce80d04a50f637ddad379a6a8
 
 
