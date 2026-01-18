@@ -119,14 +119,7 @@ jobs:
           docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
           docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:stage.${{ github.run_number }}
 
-      - name: Replacing Image tag in Task def
-        run: |
-          set -e
-          NEW_IMAGE_TAG_NAME=704098412757.dkr.ecr.ap-south-1.amazonaws.com/prod/erp-web-app:stage.${{ github.run_number }}
-          sudo apt-get install -y jq
-          tmp=$(mktemp)
-          jq --arg image "$NEW_IMAGE_TAG_NAME" '.containerDefinitions[1].image=$image' gridkey-django-backend-stage-task-def.json > "$tmp" && mv "$tmp" gridkey-django-backend-stage-task-def.json
-          jq --arg image "$NEW_IMAGE_TAG_NAME" '.containerDefinitions[1].image=$image' gridkey-celery-stage-task-def.json > "$tmp" && mv "$tmp" gridkey-celery-stage-task-def.json
-          jq --arg image "$NEW_IMAGE_TAG_NAME" '.containerDefinitions[1].image=$image' gridkey-beat-stage-task-def.json > "$tmp" && mv "$tmp" gridkey-beat-stage-task-def.json
+
+          
 
 
