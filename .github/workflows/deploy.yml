@@ -61,7 +61,7 @@ jobs:
           NEW_IMAGE_TAG_NAME=704098412757.dkr.ecr.ap-south-1.amazonaws.com/prod/erp-web-app:stage.${{ github.run_number }}
           sudo apt-get install -y jq
           tmp=$(mktemp)
-          jq --arg image "$NEW_IMAGE_TAG_NAME" '.containerDefinitions[1].image=$image' erp-backend-service-stage > "$tmp" && mv "$tmp" erp-backend-service-stage
+          jq --arg image "$NEW_IMAGE_TAG_NAME" '.containerDefinitions[0].image=$image' erp-backend-service-stage > "$tmp" && mv "$tmp" erp-backend-service-stage
           chmod 777 erp-backend-service-stage.json
 
       - name: Update ECS service for Erp Backend Service
