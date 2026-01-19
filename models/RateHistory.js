@@ -11,6 +11,10 @@ const rateHistorySchema = new mongoose.Schema(
       ref: "BaseRate",
       required: [true, "Base rate is required"],
     },
+    previousRate: {
+      type: Number,
+      required: [true, "Previous rate is required"],
+    },
   },
   {
     timestamps: true,

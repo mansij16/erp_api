@@ -29,7 +29,6 @@ class SupplierController {
           : req.query.active === "false"
           ? false
           : undefined,
-      category: req.query.category,
       search: req.query.search,
     };
 
@@ -98,30 +97,153 @@ class SupplierController {
     });
   });
 
-  updateSupplierRating = catchAsync(async (req, res) => {
-    const { rating, notes } = req.body;
-    const supplier = await supplierService.updateSupplierRating(
-      req.params.id,
-      rating,
-      notes
-    );
+  // =====================
+  // Base Rate Methods
+  // =====================
+
+  getSupplierBaseRates = catchAsync(async (req, res) => {
+    const baseRates = await supplierService.getSupplierBaseRates(req.params.id);
 
     res.status(200).json({
       success: true,
-      message: "Supplier rating updated successfully",
-      data: supplier,
+      count: baseRates.length,
+      data: baseRates,
     });
   });
 
-  getSuppliersByProduct = catchAsync(async (req, res) => {
-    const suppliers = await supplierService.getSuppliersByProduct(
-      req.params.productId
+  upsertSupplierBaseRate = catchAsync(async (req, res) => {
+    const { skuId, rate } = req.body;
+
+    const baseRate = await supplierService.upsertSupplierBaseRate(
+      req.params.id,
+      skuId,
+      rate
     );
 
     res.status(200).json({
       success: true,
-      count: suppliers.length,
-      data: suppliers,
+      message: "Base rate saved successfully",
+      data: baseRate,
+    });
+  });
+
+  deleteSupplierBaseRate = catchAsync(async (req, res) => {
+    await supplierService.deleteSupplierBaseRate(
+      req.params.id,
+      req.params.baseRateId
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Base rate deleted successfully",
+    });
+  });
+
+  getSupplierBaseRateHistory = catchAsync(async (req, res) => {
+    const history = await supplierService.getSupplierBaseRateHistory(
+      req.params.id,
+      req.params.baseRateId
+    );
+
+    res.status(200).json({
+      success: true,
+      count: history.length,
+      data: history,
+    });
+  });
+
+  getAllSupplierRateHistory = catchAsync(async (req, res) => {
+    const history = await supplierService.getAllSupplierRateHistory(
+      req.params.id
+    );
+
+    res.status(200).json({
+      success: true,
+      count: history.length,
+      data: history,
+    });
+  });
+
+  bulkUpsertSupplierBaseRates = catchAsync(async (req, res) => {
+    const { rates } = req.body;
+
+    const result = await supplierService.bulkUpsertSupplierBaseRates(
+      req.params.id,
+      rates
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Bulk base rates processed",
+      data: result,
+    });
+  });
+
+  // =====================
+  // Contact Person Methods
+  // =====================
+
+  getSupplierContactPersons = catchAsync(async (req, res) => {
+    const contactPersons = await supplierService.getSupplierContactPersons(
+      req.params.id
+    );
+
+    res.status(200).json({
+      success: true,
+      count: contactPersons.length,
+      data: contactPersons,
+    });
+  });
+
+  createSupplierContactPerson = catchAsync(async (req, res) => {
+    const contactPerson = await supplierService.createSupplierContactPerson(
+      req.params.id,
+      req.body
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Contact person created successfully",
+      data: contactPerson,
+    });
+  });
+
+  updateSupplierContactPerson = catchAsync(async (req, res) => {
+    const contactPerson = await supplierService.updateSupplierContactPerson(
+      req.params.id,
+      req.params.contactPersonId,
+      req.body
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Contact person updated successfully",
+      data: contactPerson,
+    });
+  });
+
+  deleteSupplierContactPerson = catchAsync(async (req, res) => {
+    await supplierService.deleteSupplierContactPerson(
+      req.params.id,
+      req.params.contactPersonId
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Contact person deleted successfully",
+    });
+  });
+
+  setSupplierContactPersonPrimary = catchAsync(async (req, res) => {
+    const contactPerson = await supplierService.setSupplierContactPersonPrimary(
+      req.params.id,
+      req.params.contactPersonId
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Contact person set as primary",
+      data: contactPerson,
     });
   });
 }

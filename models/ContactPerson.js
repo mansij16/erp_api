@@ -16,6 +16,10 @@ const contactPersonSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
+    contactPersonPhone: {
+      type: Number,
+      required: [true, "Contact person phone is required"],
+    },
     isPrimary: {
       type: Boolean,
       default: false,
