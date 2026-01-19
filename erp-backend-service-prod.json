@@ -3,7 +3,7 @@
     "containerDefinitions": [
         {
             "name": "erp-backend-prod-service",
-            "image": "704098412757.dkr.ecr.ap-south-1.amazonaws.com/prod/erp-web-app:prod.1",
+            "image": "704098412757.dkr.ecr.ap-south-1.amazonaws.com/prod/erp-web-app:prod.25",
             "cpu": 0,
             "portMappings": [
                 {
