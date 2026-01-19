@@ -1,0 +1,138 @@
+name: Build and Push Docker Image to ECR
+
+on:
+  push:
+    branches:
+      - main
+      - stage
+
+jobs:
+  Deploy-erp-backend-stage:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/stage'
+
+    env:
+      AWS_REGION: ap-south-1
+      ECR_REPOSITORY: stage/erp-web-app
+      IMAGE_TAG: ${{ github.sha }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Fetch secrets and create .env
+        run: |
+          echo "Fetching secrets from AWS Secrets Manager..."
+          ERP_STAGE=$(aws secretsmanager get-secret-value --secret-id prod-erp-env --region ap-south-1 --query SecretString --output text)
+          
+          echo "Creating .env file..."
+          echo "ERP_STAGE=$ERP_STAGE" >> .env
+
+          echo "Printing .env file..."
+          cat .env
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -f Docker.stage . \
+            -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ github.sha }} \
+            -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:stage.${{ github.run_number }}
+
+      - name: Push Docker image to Amazon ECR
+        run: |
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:stage.${{ github.run_number }}
+
+      - name: Replacing Image tag in Task def
+        run: |
+          set -e
+          NEW_IMAGE_TAG_NAME=704098412757.dkr.ecr.ap-south-1.amazonaws.com/prod/erp-web-app:stage.${{ github.run_number }}
+          sudo apt-get install -y jq
+          tmp=$(mktemp)
+          jq --arg image "$NEW_IMAGE_TAG_NAME" '.containerDefinitions[0].image=$image' erp-backend-service-stage > "$tmp" && mv "$tmp" erp-backend-service-stage
+          chmod 777 erp-backend-service-stage.json
+
+      - name: Update ECS service for Erp Backend Service
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: erp-backend-service-stage.json
+          cluster: ${{ vars.ECS_CLUSTER_NAME }}
+          service: ${{ vars.ECS_SERVICE_NAME }}
+
+  Deploy-erp-backend-main:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    env:
+      AWS_REGION: ap-south-1
+      ECR_REPOSITORY: prod/erp-web-app
+      IMAGE_TAG: ${{ github.sha }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Fetch secrets and create .env
+        run: |
+          echo "Fetching secrets from AWS Secrets Manager..."
+          ERP_PROD=$(aws secretsmanager get-secret-value --secret-id prod-erp-env --region ap-south-1 --query SecretString --output text)
+          
+          echo "Creating .env file..."
+          echo "ERP_PROD=$ERP_PROD" >> .env
+
+          echo "Printing .env file..."
+          cat .env
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -f Docker.stage . \
+            -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ github.sha }} \
+            -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:prod.${{ github.run_number }}
+
+      - name: Push Docker image to Amazon ECR
+        run: |
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:prod.${{ github.run_number }}
+
+      - name: Replacing Image tag in Task def
+        run: |
+          set -e
+          NEW_IMAGE_TAG_NAME=704098412757.dkr.ecr.ap-south-1.amazonaws.com/prod/erp-web-app:prod.${{ github.run_number }}
+          sudo apt-get install -y jq
+          tmp=$(mktemp)
+          jq --arg image "$NEW_IMAGE_TAG_NAME" '.containerDefinitions[0].image=$image' erp-backend-service-prod > "$tmp" && mv "$tmp" erp-backend-service-prod
+          chmod 777 erp-backend-service-prod.json
+
+      - name: Update ECS service for Erp Backend Service
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: erp-backend-service-prod.json
+          cluster: ${{ vars.PROD_ECS_CLUSTER_NAME }}
+          service: ${{ vars.PROD_ECS_SERVICE_NAME }}
+
+
