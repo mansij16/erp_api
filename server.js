@@ -38,17 +38,35 @@ const globalErrorHandler = require("./middlewares/errorMiddleware");
 
 const app = express();
 
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://stage.livesocial.in",
+  "https://livesocial.in",
+];
+
+
 // CORS configuration
 const corsOptions = {
-  origin: '*',
-  credentials: false,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  origin: function (origin, callback) {
+    // Allow Postman / mobile apps
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("CORS not allowed for this origin"));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
 };
+
 
 // Security middlewares
 app.use(helmet());
 app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(mongoSanitize());
 
 // Rate limiting
