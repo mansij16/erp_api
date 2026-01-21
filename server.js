@@ -38,25 +38,9 @@ const globalErrorHandler = require("./middlewares/errorMiddleware");
 
 const app = express();
 
-const allowedOrigins = [
-  "http://localhost:3000",
-  "https://stage.livesocial.in",
-  "https://livesocial.in",
-];
-
-
 // CORS configuration
 const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow Postman / mobile apps
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("CORS not allowed for this origin"));
-    }
-  },
+  origin: true,
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: [
@@ -67,7 +51,6 @@ const corsOptions = {
     "Origin",
   ],
 };
-
 
 // Security middlewares
 app.use(helmet());
