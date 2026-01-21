@@ -11,7 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/stage'
     
-
     env:
       AWS_REGION: ap-south-1
       ECR_REPOSITORY: stage/erp-web-app
