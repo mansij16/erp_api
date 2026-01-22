@@ -1,5 +1,5 @@
 {
-    "taskDefinitionArn": "arn:aws:ecs:ap-south-1:704098412757:task-definition/erp-backend-service-prod:1",
+    "taskDefinitionArn": "arn:aws:ecs:ap-south-1:704098412757:task-definition/erp-backend-service-prod:6",
     "containerDefinitions": [
         {
             "name": "erp-backend-prod-service",
@@ -16,10 +16,8 @@
             ],
             "essential": true,
             "environment": [],
-            "environmentFiles": [],
             "mountPoints": [],
             "volumesFrom": [],
-            "ulimits": [],
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
@@ -27,8 +25,7 @@
                     "awslogs-create-group": "true",
                     "awslogs-region": "ap-south-1",
                     "awslogs-stream-prefix": "ecs"
-                },
-                "secretOptions": []
+                }
             },
             "systemControls": []
         }
@@ -37,7 +34,7 @@
     "taskRoleArn": "arn:aws:iam::704098412757:role/CustomECSTaskExecutionPolicynew",
     "executionRoleArn": "arn:aws:iam::704098412757:role/ecsTaskExecutionRole",
     "networkMode": "awsvpc",
-    "revision": 1,
+    "revision": 6,
     "volumes": [],
     "status": "ACTIVE",
     "requiresAttributes": [
@@ -89,7 +86,7 @@
         "cpuArchitecture": "X86_64",
         "operatingSystemFamily": "LINUX"
     },
-    "registeredAt": "2026-01-18T16:14:57.549Z",
-    "registeredBy": "arn:aws:iam::704098412757:root",
+    "registeredAt": "2026-01-19T14:02:47.248Z",
+    "registeredBy": "arn:aws:iam::704098412757:user/ci-cd-backend-user",
     "tags": []
 }
