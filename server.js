@@ -40,15 +40,22 @@ const app = express();
 
 // CORS configuration
 const corsOptions = {
-  origin: '*',
-  credentials: false,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  origin: true,
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+    "Accept",
+    "Origin",
+  ],
 };
 
 // Security middlewares
 app.use(helmet());
 app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(mongoSanitize());
 
 // Rate limiting

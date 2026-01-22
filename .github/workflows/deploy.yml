@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/stage'
 
+    
     env:
       AWS_REGION: ap-south-1
       ECR_REPOSITORY: stage/erp-web-app
@@ -26,11 +27,12 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+          
 
       - name: Fetch secrets and create .env
         run: |
           echo "Fetching secrets from AWS Secrets Manager..."
-          ERP_STAGE=$(aws secretsmanager get-secret-value --secret-id prod-erp-env --region ap-south-1 --query SecretString --output text)
+          ERP_STAGE=$(aws secretsmanager get-secret-value --secret-id stage-erp-env --region ap-south-1 --query SecretString --output text)
           
           echo "Creating .env file..."
           echo "ERP_STAGE=$ERP_STAGE" >> .env
